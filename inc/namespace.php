@@ -20,7 +20,7 @@ const BLOCK_NAME = 'code-bin-block/code-bin-block';
  */
 function bootstrap() {
 	add_action( 'init', __NAMESPACE__ . '\\block_init' );
-	add_action( 'init', __NAMESPACE__ . '\\register_post_type' );
+	add_action( 'init', __NAMESPACE__ . '\\initialize_custom_post_type' );
 	add_filter( 'allowed_block_types_all', __NAMESPACE__ . '\\filter_allowed_block_types', 10, 2 );
 	add_filter( 'block_editor_settings_all', __NAMESPACE__ . '\\filter_block_editor_settings', 10, 2 );
 	add_filter( 'embed_template', __NAMESPACE__ . '\\filter_embed_template' );
@@ -35,7 +35,7 @@ function bootstrap() {
  * Flush rewrite rules on activation so the post type's URLs work.
  */
 function activate() {
-	register_post_type();
+	initialize_custom_post_type();
 	flush_rewrite_rules();
 }
 
@@ -45,7 +45,7 @@ function activate() {
  * Each code bin contains a single Code Bin block. The template is locked so
  * the block can be edited but not moved, removed or added to.
  */
-function register_post_type() {
+function initialize_custom_post_type() {
 	\register_post_type(
 		POST_TYPE,
 		array(
@@ -79,7 +79,7 @@ function register_post_type() {
 			),
 			'public'        => true,
 			'has_archive'   => true,
-			'rewrite'       => array( 'slug' => 'code-bin' ),
+			'rewrite'       => array( 'slug' => 'code-bins' ),
 			'menu_icon'     => 'dashicons-editor-code',
 			'show_in_rest'  => true,
 			'rest_base'     => 'code-bins',
