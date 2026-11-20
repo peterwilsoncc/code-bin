@@ -110,7 +110,7 @@ $wrapper_attributes = get_block_wrapper_attributes( $extra_attributes );
 				/* translators: %s: Language name, eg CSS. */
 				$empty_text = sprintf( __( 'No %s', 'code-bin' ), $label );
 				?>
-				<pre class="code-bin__code wp-exclude-emoji"><code class="language-<?php echo esc_attr( $panel ); ?>" data-empty="<?php echo esc_attr( $empty_text ); ?>"><?php echo esc_html( $code[ $panel ] ); ?></code></pre>
+				<pre class="code-bin__code wp-exclude-emoji"><code class="language-<?php echo esc_attr( $panel ); ?>" data-empty="<?php echo esc_attr( $empty_text ); ?>"><?php echo code_bin_escape_code( $code[ $panel ] ); ?></code></pre>
 			</div>
 		</div>
 	<?php endforeach; ?>
@@ -149,7 +149,7 @@ $wrapper_attributes = get_block_wrapper_attributes( $extra_attributes );
 				title="<?php esc_attr_e( 'Code preview', 'code-bin' ); ?>"
 				sandbox=""
 				style="height: <?php echo esc_attr( $preview_height ); ?>px"
-				srcdoc="<?php echo esc_attr( $srcdoc ); ?>"
+				srcdoc="<?php echo code_bin_escape_code( $srcdoc ); ?>"
 			></iframe>
 		</div>
 		<div

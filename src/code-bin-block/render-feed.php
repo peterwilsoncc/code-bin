@@ -28,7 +28,7 @@ foreach ( $panels as $panel => $label ) {
 		'<p><strong>%1$s</strong></p><pre><code class="language-%2$s">%3$s</code></pre>',
 		esc_html( $label ),
 		esc_attr( $panel ),
-		esc_html( $code[ $panel ] )
+		code_bin_escape_code( $code[ $panel ] )
 	);
 }
 
