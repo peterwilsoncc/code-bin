@@ -13,6 +13,7 @@ use WP_UnitTestCase;
 use function CodeBin\get_block_anchor;
 use function CodeBin\has_saved_anchor;
 use function CodeBin\reserve_block_anchor;
+use function CodeBin\reset_reserved_block_anchors;
 
 use const CodeBin\BLOCK_NAME;
 
@@ -20,6 +21,14 @@ use const CodeBin\BLOCK_NAME;
  * Test the Code Bin block's anchors.
  */
 class Test_Anchors extends WP_UnitTestCase {
+
+	/**
+	 * Start each test without any anchors reserved.
+	 */
+	public function set_up() {
+		parent::set_up();
+		reset_reserved_block_anchors();
+	}
 
 	/**
 	 * Render a Code Bin block.

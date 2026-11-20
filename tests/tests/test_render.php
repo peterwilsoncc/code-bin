@@ -18,11 +18,15 @@ use const CodeBin\BLOCK_NAME;
 class Test_Render extends WP_UnitTestCase {
 
 	/**
+	 * Start each test without any anchors reserved.
+	 */
+	public function set_up() {
+		parent::set_up();
+		\CodeBin\reset_reserved_block_anchors();
+	}
+
+	/**
 	 * Render a Code Bin block.
-	 *
-	 * Code based anchors are reserved once per request (see
-	 * reserve_block_anchor()), so tests asserting the anchor use code unique
-	 * to the test.
 	 *
 	 * @param array $attributes Block attributes.
 	 * @return string Rendered block.
@@ -457,12 +461,17 @@ class Test_Render extends WP_UnitTestCase {
 		$attributes = array( 'html' => '<p>Hi</p>' );
 		$html       = $this->render( $attributes ) . $this->render( $attributes );
 
-		$ids       = array();
-		$processor = new WP_HTML_Tag_Processor( $html );
+		$ids           = array();
+		$tab_panel_ids = array();
+		$processor     = new WP_HTML_Tag_Processor( $html );
 		while ( $processor->next_tag() ) {
 			$id = $processor->get_attribute( 'id' );
 			if ( is_string( $id ) ) {
 				$ids[] = $id;
+
+				if ( in_array( $processor->get_attribute( 'role' ), array( 'tab', 'tabpanel' ), true ) ) {
+					$tab_panel_ids[] = $id;
+				}
 			}
 
 			$controls = $processor->get_attribute( 'aria-controls' );
@@ -472,7 +481,8 @@ class Test_Render extends WP_UnitTestCase {
 		}
 
 		// Two blocks, each with 5 tabs and 5 panels.
-		$this->assertCount( 20, $ids, 'Each tab and panel should have an ID.' );
+		$this->assertCount( 20, $tab_panel_ids, 'Each tab and panel should have an ID.' );
+		// Includes the first block's anchor: the second block has identical code so doesn't get one.
 		$this->assertSame( $ids, array_unique( $ids ), 'The IDs should be unique.' );
 	}
 
@@ -537,17 +547,14 @@ class Test_Render extends WP_UnitTestCase {
 	/**
 	 * Data provider for test_feed_links_to_block_anchor.
 	 *
-	 * Uses code unique to this test as code based anchors are reserved once
-	 * per request.
-	 *
 	 * @return array[] Test data.
 	 */
 	public function data_feed_links_to_block_anchor() {
 		return array(
-			'code based anchor' => array( array( 'html' => '<p>test_feed_links_to_block_anchor</p>' ) ),
+			'code based anchor' => array( array( 'html' => '<p>Hi</p>' ) ),
 			'saved anchor'      => array(
 				array(
-					'html'   => '<p>test_feed_links_to_block_anchor saved</p>',
+					'html'   => '<p>Hi</p>',
 					'anchor' => 'my-code-bin',
 				),
 			),

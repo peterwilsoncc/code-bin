@@ -317,7 +317,7 @@ function get_block_anchor( $attributes ) {
  * @return bool Whether the anchor was available.
  */
 function reserve_block_anchor( $anchor ) {
-	static $used = array();
+	$used = &get_reserved_block_anchors();
 
 	if ( isset( $used[ $anchor ] ) ) {
 		return false;
@@ -325,4 +325,29 @@ function reserve_block_anchor( $anchor ) {
 
 	$used[ $anchor ] = true;
 	return true;
+}
+
+/**
+ * Get the anchors reserved on the current page.
+ *
+ * Returned by reference so reserve_block_anchor() and
+ * reset_reserved_block_anchors() can change the list.
+ *
+ * @return array<string, true> Reserved anchors, keyed by anchor.
+ */
+function &get_reserved_block_anchors() {
+	static $used = array();
+
+	return $used;
+}
+
+/**
+ * Clear the anchors reserved on the current page.
+ *
+ * The list lasts for the request. Use this when rendering a separate page in
+ * the same request, eg between tests.
+ */
+function reset_reserved_block_anchors() {
+	$used = &get_reserved_block_anchors();
+	$used = array();
 }
