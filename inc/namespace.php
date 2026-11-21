@@ -270,8 +270,8 @@ function filter_embed_html( $output, $post ) {
 /**
  * Whether a Code Bin block has an anchor saved in its attributes.
  *
- * The editor gives each block a random anchor (WordPress 7.0+). Block support
- * outputs it as the block's ID.
+ * The editor gives each block a random anchor. Block support outputs it as the
+ * block's ID.
  *
  * @param array $attributes Block attributes.
  * @return bool Whether the block has a saved anchor.
@@ -286,9 +286,9 @@ function has_saved_anchor( $attributes ) {
  * Feeds link to the block using this anchor, so it must be the same when the
  * post is rendered in a feed and on the site.
  *
- * Blocks saved without an anchor (eg before the editor generated them, on
- * WordPress before 7.0, or created outside the editor) fall back to an anchor
- * based on the block's code: changing the code changes that anchor.
+ * Blocks saved without an anchor (eg before the editor generated them, or
+ * created outside the editor) fall back to an anchor based on the block's
+ * code: changing the code changes that anchor.
  *
  * @param array $attributes Block attributes.
  * @return string Anchor.
