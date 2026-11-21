@@ -72,7 +72,13 @@ $extra_attributes = array(
 	'data-code-bin-editable' => $editable ? 'true' : 'false',
 );
 if ( '' !== trim( $preview_styles ) ) {
-	$extra_attributes['data-code-bin-preview-styles'] = $preview_styles;
+	/*
+	 * get_block_wrapper_attributes() escapes with esc_attr(), which doesn't
+	 * encode entities that are already encoded: `&amp;` in the styles would be
+	 * decoded to `&` by the browser. Encoding every `&` first means esc_attr()
+	 * leaves them as `&amp;` and the browser decodes them to the exact styles.
+	 */
+	$extra_attributes['data-code-bin-preview-styles'] = str_replace( '&', '&amp;', $preview_styles );
 }
 // Saved anchors are output by the anchor block support.
 if ( ! \CodeBin\has_saved_anchor( $attributes ) && \CodeBin\reserve_block_anchor( $anchor ) ) {

@@ -22,6 +22,17 @@ use const CodeBin\BLOCK_NAME;
 class Test_Preview_Styles extends WP_UnitTestCase {
 
 	/**
+	 * Start each test with the plugin's own preview styles.
+	 *
+	 * The test suite shares the site's content directory, so the site's
+	 * plugins may filter the styles. Hooks are restored after each test.
+	 */
+	public function set_up() {
+		parent::set_up();
+		remove_all_filters( 'code_bin_preview_styles' );
+	}
+
+	/**
 	 * Render a Code Bin block.
 	 *
 	 * @param array $attributes Block attributes.
