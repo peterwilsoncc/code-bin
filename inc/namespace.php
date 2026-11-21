@@ -27,6 +27,8 @@ function bootstrap() {
 	add_filter( 'embed_html', __NAMESPACE__ . '\\filter_embed_html', 10, 2 );
 	add_action( 'enqueue_block_editor_assets', __NAMESPACE__ . '\\add_editor_preview_styles' );
 
+	bootstrap_meta();
+
 	register_activation_hook( PLUGIN_FILE, __NAMESPACE__ . '\\activate' );
 	register_deactivation_hook( PLUGIN_FILE, 'flush_rewrite_rules' );
 }
@@ -83,7 +85,8 @@ function initialize_custom_post_type() {
 			'menu_icon'     => 'dashicons-editor-code',
 			'show_in_rest'  => true,
 			'rest_base'     => 'code-bins',
-			'supports'      => array( 'title', 'editor', 'author', 'revisions' ),
+			// Custom fields: the code is stored in meta, which the editor reads via the REST API.
+			'supports'      => array( 'title', 'editor', 'author', 'revisions', 'custom-fields' ),
 			'template'      => array(
 				array( BLOCK_NAME ),
 			),
@@ -290,18 +293,26 @@ function has_saved_anchor( $attributes ) {
  * created outside the editor) fall back to an anchor based on the block's
  * code: changing the code changes that anchor.
  *
- * @param array $attributes Block attributes.
+ * @param array      $attributes Block attributes.
+ * @param array|null $code       The block's code, keyed by panel, see get_block_code().
+ *                               Defaults to the code in the attributes.
  * @return string Anchor.
  */
-function get_block_anchor( $attributes ) {
+function get_block_anchor( $attributes, $code = null ) {
 	if ( has_saved_anchor( $attributes ) ) {
 		return $attributes['anchor'];
 	}
 
-	$code = array();
-	foreach ( array( 'html', 'css', 'javascript' ) as $panel ) {
-		$code[ $panel ] = isset( $attributes[ $panel ] ) ? (string) $attributes[ $panel ] : '';
+	if ( null === $code ) {
+		$code = get_block_code( $attributes );
 	}
+
+	// Only the panels, in a fixed order, so the anchor doesn't change with the source of the code.
+	$code = array(
+		'html'       => (string) ( $code['html'] ?? '' ),
+		'css'        => (string) ( $code['css'] ?? '' ),
+		'javascript' => (string) ( $code['javascript'] ?? '' ),
+	);
 
 	return 'code-bin-' . substr( md5( wp_json_encode( $code ) ), 0, 8 );
 }

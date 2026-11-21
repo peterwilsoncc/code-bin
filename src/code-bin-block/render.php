@@ -27,16 +27,14 @@ $panels = array(
 	'javascript' => 'JavaScript',
 );
 
-$code = array();
-foreach ( $panels as $panel => $label ) {
-	$code[ $panel ] = isset( $attributes[ $panel ] ) ? (string) $attributes[ $panel ] : '';
-}
+// The code is stored in the post's meta, or in the attributes of older blocks, see inc/meta.php.
+$code = \CodeBin\get_block_code( $attributes, $block->context['postId'] ?? null );
 
 if ( '' === trim( implode( '', $code ) ) ) {
 	return;
 }
 
-$anchor = \CodeBin\get_block_anchor( $attributes );
+$anchor = \CodeBin\get_block_anchor( $attributes, $code );
 
 // Feed readers strip the scripts and most of the markup, see render-feed.php.
 if ( is_feed() ) {

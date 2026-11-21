@@ -94,7 +94,7 @@ class Test_Post_Type extends WP_UnitTestCase {
 			'comments'      => array( 'comments', false ),
 			'thumbnail'     => array( 'thumbnail', false ),
 			'excerpt'       => array( 'excerpt', false ),
-			'custom-fields' => array( 'custom-fields', false ),
+			'custom-fields' => array( 'custom-fields', true ),
 		);
 	}
 

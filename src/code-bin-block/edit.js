@@ -21,6 +21,7 @@ import { useInstanceId } from '@wordpress/compose';
 import { MAX_CONSOLE_ENTRIES } from './lib/console';
 import { scheduleHighlight } from './lib/highlight';
 import { createPreview, describeStatus } from './lib/preview';
+import useCodeStorage from './lib/use-code-storage';
 import useGeneratedAnchor from './lib/use-generated-anchor';
 import './editor.scss';
 
@@ -301,13 +302,28 @@ function Preview( { code, height } ) {
  * @param {(attributes: Object) => void} props.setAttributes Attribute setter.
  * @param {string}                       props.clientId      Block client ID.
  * @param {string}                       props.name          Block name.
+ * @param {Object}                       props.context       Block context.
  * @return {Element} Element to render.
  */
-export default function Edit( { attributes, setAttributes, clientId, name } ) {
-	const { html, css, javascript, editable, previewHeight, anchor } =
-		attributes;
+export default function Edit( {
+	attributes,
+	setAttributes,
+	clientId,
+	name,
+	context,
+} ) {
+	const { editable, previewHeight, anchor } = attributes;
 
 	useGeneratedAnchor( { clientId, name, anchor, setAttributes } );
+
+	// The code is stored in the post's meta, see use-code-storage.js.
+	const { code, setCode } = useCodeStorage( {
+		attributes,
+		setAttributes,
+		clientId,
+		context,
+	} );
+	const { html, css, javascript } = code;
 
 	return (
 		<>
@@ -355,7 +371,7 @@ export default function Edit( { attributes, setAttributes, clientId, name } ) {
 						title: (
 							<PanelTabTitle
 								title={ panel.title }
-								hasCode={ !! attributes[ panel.name ] }
+								hasCode={ !! code[ panel.name ] }
 							/>
 						),
 					} ) ) }
@@ -368,9 +384,9 @@ export default function Edit( { attributes, setAttributes, clientId, name } ) {
 							<CodeInput
 								key={ panel.name }
 								language={ panel.language }
-								value={ attributes[ panel.name ] }
+								value={ code[ panel.name ] }
 								onChange={ ( value ) =>
-									setAttributes( { [ panel.name ]: value } )
+									setCode( panel.name, value )
 								}
 								label={ panel.title }
 								placeholder={ panel.placeholder }

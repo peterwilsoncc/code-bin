@@ -236,7 +236,7 @@ const SCENARIOS = [
 		/**
 		 * Save the attack as another user's code bin and edit it as the admin.
 		 *
-		 * The admin saves it for the author: kses would filter the author's code.
+		 * The admin creates it on the author's behalf via the REST API.
 		 *
 		 * @param {Object} args              Arguments.
 		 * @param {Object} args.page         Page logged in as the admin.
