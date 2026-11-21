@@ -1,10 +1,12 @@
 /**
  * Code in a code bin must not be able to escape the preview's sandboxed iframe.
  *
- * Each attack runs in two scenarios:
+ * Each attack runs in three scenarios:
  *
  * - Saved code viewed by a logged in admin: the code bin's author can run
  *   code in every visitor's browser, so this is the scenario that matters.
+ * - Saved code opened in the editor by an admin: another user's code runs in
+ *   the editor's preview, with the admin's editor session around it.
  * - Code typed by a logged out visitor editing the code on the site.
  *
  * Each attack logs a marker when it's done, so the tests know it ran rather
@@ -197,6 +199,12 @@ const PLACEHOLDER = {
 
 const PANEL_LABELS = { html: 'HTML', css: 'CSS', javascript: 'JavaScript' };
 
+// Name of the editor canvas iframe.
+const CANVAS_FRAME = 'editor-canvas';
+
+// The author of the code bins opened in the editor, set up before the tests.
+const author = { id: 0 };
+
 const SCENARIOS = [
 	{
 		name: 'saved code viewed by a logged in admin',
@@ -207,7 +215,7 @@ const SCENARIOS = [
 		 * @param {Object} args.page         Page logged in as the admin.
 		 * @param {Object} args.requestUtils Request utils.
 		 * @param {Object} args.code         Attack code.
-		 * @return {Promise<Object>} The page showing the attack.
+		 * @return {Promise<Attack>} The attack.
 		 */
 		async run( { page, requestUtils, code } ) {
 			const { link } = await createCodeBin( requestUtils, code );
@@ -216,7 +224,45 @@ const SCENARIOS = [
 
 			// The attacks need the admin's session to be worth anything.
 			await expect( page.locator( '#wpadminbar' ) ).toBeVisible();
-			return page;
+			return {
+				page,
+				block: getBlock( page ),
+				frames: [ page.mainFrame() ],
+			};
+		},
+	},
+	{
+		name: 'saved code opened in the editor by an admin',
+		/**
+		 * Save the attack as another user's code bin and edit it as the admin.
+		 *
+		 * The admin saves it for the author: kses would filter the author's code.
+		 *
+		 * @param {Object} args              Arguments.
+		 * @param {Object} args.page         Page logged in as the admin.
+		 * @param {Object} args.admin        Admin utils.
+		 * @param {Object} args.editor       Editor utils.
+		 * @param {Object} args.requestUtils Request utils.
+		 * @param {Object} args.code         Attack code.
+		 * @return {Promise<Attack>} The attack.
+		 */
+		async run( { page, admin, editor, requestUtils, code } ) {
+			const { id } = await createCodeBin( requestUtils, code, {
+				author: author.id,
+			} );
+			await watchPage( page );
+			await admin.editPost( id );
+
+			const block = getBlock( editor.canvas );
+			await expect( block ).toBeVisible();
+
+			// The preview's parent is the editor canvas, its top the editor.
+			const canvas = page.frame( { name: CANVAS_FRAME } );
+			expect(
+				canvas,
+				'The editor canvas should be an iframe.'
+			).toBeTruthy();
+			return { page, block, frames: [ page.mainFrame(), canvas ] };
 		},
 	},
 	{
@@ -228,7 +274,7 @@ const SCENARIOS = [
 		 * @param {Object} args.browser      Browser.
 		 * @param {Object} args.requestUtils Request utils.
 		 * @param {Object} args.code         Attack code.
-		 * @return {Promise<Object>} The page showing the attack.
+		 * @return {Promise<Attack>} The attack.
 		 */
 		async run( { browser, requestUtils, code } ) {
 			const { link } = await createCodeBin( requestUtils, {
@@ -257,20 +303,33 @@ const SCENARIOS = [
 				.getByRole( 'button', { name: 'Run', exact: true } )
 				.click();
 
-			return page;
+			return { page, block, frames: [ page.mainFrame() ] };
 		},
 	},
 ];
 
 /**
+ * An attack running in a scenario.
+ *
+ * @typedef {Object} Attack
+ * @property {Object}   page   Page showing the attack.
+ * @property {Object}   block  Block locator.
+ * @property {Object[]} frames Frames the code must not escape to: the page and,
+ *                             in the editor, the editor canvas.
+ */
+
+/**
  * Record anything the attacks might trigger on the page.
+ *
+ * Navigations are recorded for the page and the editor canvas: the preview's
+ * own document is replaced each time the code runs.
  *
  * @param {Object} page Page.
  */
 async function watchPage( page ) {
 	page.codeBinEvents = { navigations: [], dialogs: [], popups: [] };
 	page.on( 'framenavigated', ( frame ) => {
-		if ( frame === page.mainFrame() ) {
+		if ( frame === page.mainFrame() || frame.name() === CANVAS_FRAME ) {
 			page.codeBinEvents.navigations.push( frame.url() );
 		}
 	} );
@@ -283,9 +342,38 @@ async function watchPage( page ) {
 	} );
 }
 
+/**
+ * Get what an attack might change in a frame.
+ *
+ * @param {Object} frame Frame.
+ * @return {Promise<Object>} The frame's URL, title and any canaries.
+ */
+function inspectFrame( frame ) {
+	return frame.evaluate( () => ( {
+		url: window.location.href,
+		title: document.title,
+		global: window.codeBinPwned ?? null,
+		attribute: document.documentElement.dataset.codeBinPwned ?? null,
+		injected: document.querySelectorAll( '.code-bin-injected' ).length,
+	} ) );
+}
+
 test.describe( 'Code Bin preview security', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		const user = await requestUtils.createUser( {
+			username: 'code-bin-author',
+			email: 'code-bin-author@example.com',
+			first_name: 'Code',
+			last_name: 'Author',
+			password: 'password',
+			roles: [ 'author' ],
+		} );
+		author.id = user.id;
+	} );
+
 	test.afterAll( async ( { requestUtils } ) => {
 		await requestUtils.deleteAllPosts( 'code-bins' );
+		await requestUtils.deleteAllUsers();
 	} );
 
 	for ( const scenario of SCENARIOS ) {
@@ -293,19 +381,31 @@ test.describe( 'Code Bin preview security', () => {
 			for ( const attack of ATTACKS ) {
 				test(
 					attack.name,
-					async ( { page, browser, requestUtils } ) => {
-						const attackPage = await scenario.run( {
+					async ( {
+						page,
+						browser,
+						admin,
+						editor,
+						requestUtils,
+					} ) => {
+						const {
+							page: attackPage,
+							block,
+							frames,
+						} = await scenario.run( {
 							page,
 							browser,
+							admin,
+							editor,
 							requestUtils,
 							code: attack.code,
 						} );
-						const block = getBlock( attackPage );
 						const consoleView = getConsole( block );
 
 						// Navigations after this point are the attack's.
-						const url = attackPage.url();
-						const title = await attackPage.title();
+						const before = await Promise.all(
+							frames.map( inspectFrame )
+						);
 						attackPage.codeBinEvents.navigations.length = 0;
 
 						await expect(
@@ -334,36 +434,42 @@ test.describe( 'Code Bin preview security', () => {
 							);
 						}
 
+						/*
+						 * The editor replaces its URL with the same URL once it
+						 * loads, which counts as a navigation. The attacks
+						 * navigate to URLs with the token in them.
+						 */
+						const startUrls = before.map( ( frame ) => frame.url );
+						const { navigations, ...events } =
+							attackPage.codeBinEvents;
 						expect(
-							attackPage.codeBinEvents,
+							{
+								...events,
+								navigations: navigations.filter(
+									( url ) => ! startUrls.includes( url )
+								),
+							},
 							'The page should not navigate, open dialogs or open windows.'
 						).toEqual( {
 							navigations: [],
 							dialogs: [],
 							popups: [],
 						} );
-						expect( attackPage.url() ).toBe( url );
 
-						const parent = await attackPage.evaluate( () => ( {
-							global: window.codeBinPwned ?? null,
-							attribute:
-								document.documentElement.dataset.codeBinPwned ??
-								null,
-							injected:
-								document.querySelectorAll(
-									'.code-bin-injected'
-								).length,
-							title: document.title,
-						} ) );
+						const after = await Promise.all(
+							frames.map( inspectFrame )
+						);
 						expect(
-							parent,
+							after,
 							'The page should be untouched.'
-						).toEqual( {
-							global: null,
-							attribute: null,
-							injected: 0,
-							title,
-						} );
+						).toEqual(
+							before.map( ( frame ) => ( {
+								...frame,
+								global: null,
+								attribute: null,
+								injected: 0,
+							} ) )
+						);
 					}
 				);
 			}
@@ -371,11 +477,15 @@ test.describe( 'Code Bin preview security', () => {
 			test( 'cannot use the logged in session', async ( {
 				page,
 				browser,
+				admin,
+				editor,
 				requestUtils,
 			} ) => {
-				const attackPage = await scenario.run( {
+				const { block } = await scenario.run( {
 					page,
 					browser,
+					admin,
+					editor,
 					requestUtils,
 					code: {
 						javascript: `( async () => {
@@ -398,7 +508,7 @@ test.describe( 'Code Bin preview security', () => {
 } )();`,
 					},
 				} );
-				const consoleView = getConsole( getBlock( attackPage ) );
+				const consoleView = getConsole( block );
 
 				await expect(
 					consoleView,

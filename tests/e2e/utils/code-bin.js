@@ -30,23 +30,20 @@ function serializeAttributes( attributes ) {
  *
  * @param {Object} requestUtils Request utils from `@wordpress/e2e-test-utils-playwright`.
  * @param {Object} attributes   Block attributes.
- * @param {string} [title]      Post title.
+ * @param {Object} [data]       Other post fields, eg `title` or `author`.
  * @return {Promise<{id: number, link: string}>} The code bin's ID and URL.
  */
-async function createCodeBin(
-	requestUtils,
-	attributes,
-	title = 'E2E code bin'
-) {
+async function createCodeBin( requestUtils, attributes, data = {} ) {
 	const post = await requestUtils.rest( {
 		method: 'POST',
 		path: '/wp/v2/code-bins',
 		data: {
-			title,
+			title: 'E2E code bin',
 			status: 'publish',
 			content: `<!-- wp:${ BLOCK_NAME } ${ serializeAttributes(
 				attributes
 			) } /-->`,
+			...data,
 		},
 	} );
 
