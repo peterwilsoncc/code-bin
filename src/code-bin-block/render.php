@@ -72,7 +72,13 @@ $extra_attributes = array(
 	'data-code-bin-editable' => $editable ? 'true' : 'false',
 );
 if ( '' !== trim( $preview_styles ) ) {
-	$extra_attributes['data-code-bin-preview-styles'] = $preview_styles;
+	/*
+	 * get_block_wrapper_attributes() escapes with esc_attr(), which doesn't
+	 * encode entities that are already encoded: `&amp;` in the styles would be
+	 * decoded to `&` by the browser. Encoding every `&` first means esc_attr()
+	 * leaves them as `&amp;` and the browser decodes them to the exact styles.
+	 */
+	$extra_attributes['data-code-bin-preview-styles'] = str_replace( '&', '&amp;', $preview_styles );
 }
 // Saved anchors are output by the anchor block support.
 if ( ! \CodeBin\has_saved_anchor( $attributes ) && \CodeBin\reserve_block_anchor( $anchor ) ) {
@@ -110,7 +116,7 @@ $wrapper_attributes = get_block_wrapper_attributes( $extra_attributes );
 				/* translators: %s: Language name, eg CSS. */
 				$empty_text = sprintf( __( 'No %s', 'code-bin' ), $label );
 				?>
-				<pre class="code-bin__code wp-exclude-emoji"><code class="language-<?php echo esc_attr( $panel ); ?>" data-empty="<?php echo esc_attr( $empty_text ); ?>"><?php echo esc_html( $code[ $panel ] ); ?></code></pre>
+				<pre class="code-bin__code wp-exclude-emoji"><code class="language-<?php echo esc_attr( $panel ); ?>" data-empty="<?php echo esc_attr( $empty_text ); ?>"><?php echo code_bin_escape_code( $code[ $panel ] ); ?></code></pre>
 			</div>
 		</div>
 	<?php endforeach; ?>
@@ -149,7 +155,7 @@ $wrapper_attributes = get_block_wrapper_attributes( $extra_attributes );
 				title="<?php esc_attr_e( 'Code preview', 'code-bin' ); ?>"
 				sandbox=""
 				style="height: <?php echo esc_attr( $preview_height ); ?>px"
-				srcdoc="<?php echo esc_attr( $srcdoc ); ?>"
+				srcdoc="<?php echo code_bin_escape_code( $srcdoc ); ?>"
 			></iframe>
 		</div>
 		<div

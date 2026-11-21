@@ -43,56 +43,51 @@ jobs:
         if-no-files-found: error
         retention-days: 1
 
-  phpunit:
-    needs: [ 'build' ]
+  build-matrix:
+    name: Build WP/PHP Matrix
     runs-on: ubuntu-latest
-    env:
-      DB_DATABASE: wordpress_test
-      DB_USER: root
-      DB_PASSWORD: root
-    strategy:
-      fail-fast: false
-      matrix:
-        php-versions: ['8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
-        wp-versions: [ '6.8', '6.9', '7.0', 'latest', 'trunk' ]
-    name: WP ${{ matrix.wp-versions }} / PHP ${{ matrix.php-versions }}
-
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: set-matrix
+        name: Generate matrix JSON
+        shell: bash
+        run: |
+          declare -A wp_php
+          wp_php["trunk"]="8.0 8.1 8.2 8.3 8.4 8.5 8.6"
+          wp_php["7.1"]="8.0 8.1 8.2 8.3 8.4 8.5"
+          wp_php["7.0"]="8.0 8.1 8.2 8.3 8.4 8.5"
 
-    - name: Download build
-      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-      with:
-        name: build
-        path: build/
+          matrix='{"include":[]}'
+          mapfile -t wp_versions < <(
+            {
+              printf '%s\n' "${!wp_php[@]}" | grep -x 'trunk' || true
+              printf '%s\n' "${!wp_php[@]}" | grep -vx 'trunk' | sort -rV
+            }
+          )
 
-    - name: Setup PHP
-      uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-      with:
-        php-version: ${{ matrix.php-versions }}
+          for wp_version in "${wp_versions[@]}"; do
+            for php_version in ${wp_php[$wp_version]}; do
+              matrix=$(jq \
+                --arg wp "$wp_version" \
+                --arg php "$php_version" \
+                '.include += [{"wp-version": $wp, "php-version": $php}]' \
+                <<< "$matrix")
+            done
+          done
 
-    - name: Install Subversion.
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y subversion
+          echo "matrix=$(jq -c . <<< "$matrix")" >> "$GITHUB_OUTPUT"
 
-    - name: Check PHP Version
-      run: php -v
-
-    - name: Composer install
-      run: composer install --optimize-autoloader --prefer-dist
-
-    - name: Install WP Tests
-      run: |
-        sudo /etc/init.d/mysql start
-        bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 ${{ matrix.wp-versions }}
-
-    - name: PHPUnit tests
-      run: ./vendor/bin/phpunit
-      env:
-        WP_TESTS_DIR: ${{ runner.temp }}/wordpress-tests-lib
-        WP_CORE_DIR: ${{ runner.temp }}/wordpress
+  phpunit:
+    needs: [ 'build', 'build-matrix' ]
+    name: WP ${{ matrix.wp-version }} / PHP ${{ matrix.php-version }}
+    strategy:
+      matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
+      fail-fast: false
+    uses: ./.github/workflows/phpunit-reusable.yaml
+    with:
+      wp-version: ${{ matrix.wp-version }}
+      php-version: ${{ matrix.php-version }}
 
   required-status-checks:
     # This should be configured as the required status check in branch protection rules
@@ -101,7 +96,7 @@ jobs:
     # required status check will not need to be updated when matrix items change.
     name: PHPUnit Required Status Checks
     runs-on: 'ubuntu-24.04'
-    needs: [ 'build', 'phpunit' ]
+    needs: [ 'build', 'build-matrix', 'phpunit' ]
     if: ${{ always() }}
     steps:
       - name: Detect any failing status checks

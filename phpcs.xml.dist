@@ -18,7 +18,7 @@
 	<rule ref="PHPCompatibilityWP"/>
 
 	<!-- Rules: WordPress Coding Standards -->
-	<config name="minimum_supported_wp_version" value="6.8"/>
+	<config name="minimum_supported_wp_version" value="7.0"/>
 	<rule ref="WordPress">
 		<!-- sanitize_url() was undprected in WordPress 5.9.0 -->
 		<exclude name="WordPress.WP.DeprecatedFunctions.sanitize_urlFound"/>
@@ -38,6 +38,17 @@
 			<!-- Value: replace the text domain used. -->
 			<property name="text_domain" type="array">
 				<element value="code-bin"/>
+			</property>
+		</properties>
+	</rule>
+	<rule ref="WordPress.Security.EscapeOutput">
+		<properties>
+			<!--
+			Custom escaping functions: global functions only, lowercase and
+			called unqualified. Namespaced calls are not recognised.
+			-->
+			<property name="customEscapingFunctions" type="array">
+				<element value="code_bin_escape_code"/>
 			</property>
 		</properties>
 	</rule>
