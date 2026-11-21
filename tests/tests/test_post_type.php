@@ -171,6 +171,7 @@ class Test_Post_Type extends WP_UnitTestCase {
 
 		$this->assertFalse( $supports['html'], 'Editing the block as HTML should be disabled.' );
 		$this->assertTrue( $supports['anchor'], 'The block should support anchors.' );
+		$this->assertFalse( $supports['reusable'], 'Creating a pattern from the block should be disabled.' );
 		$this->assertSame( array( 'wide', 'full' ), $supports['align'], 'The block should support wide and full alignment.' );
 	}
 
@@ -194,6 +195,22 @@ class Test_Post_Type extends WP_UnitTestCase {
 	 */
 	public function test_allowed_block_types_for_other_post_types( $allowed ) {
 		$this->assertSame( $allowed, filter_allowed_block_types( $allowed, $this->get_context( 'post' ) ) );
+	}
+
+	/**
+	 * Test patterns edited in the post editor don't allow the Code Bin block.
+	 */
+	public function test_allowed_block_types_for_patterns() {
+		$all = filter_allowed_block_types( true, $this->get_context( 'wp_block' ) );
+		$this->assertIsArray( $all, 'All blocks should be listed so one can be removed.' );
+		$this->assertNotContains( BLOCK_NAME, $all );
+		$this->assertContains( 'core/paragraph', $all, 'Other blocks should be allowed.' );
+
+		$this->assertSame(
+			array( 'core/paragraph' ),
+			filter_allowed_block_types( array( 'core/paragraph', BLOCK_NAME ), $this->get_context( 'wp_block' ) )
+		);
+		$this->assertFalse( filter_allowed_block_types( false, $this->get_context( 'wp_block' ) ) );
 	}
 
 	/**

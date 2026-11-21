@@ -96,21 +96,38 @@ function initialize_custom_post_type() {
 }
 
 /**
- * Only allow the Code Bin block in the Code Bin post type.
+ * Limit where the Code Bin block can be used.
  *
- * The locked template already prevents inserting blocks. This also stops
- * other blocks being offered via transforms, paste or patterns.
+ * - The Code Bin post type only allows the Code Bin block. The locked template
+ *   already prevents inserting blocks. This also stops other blocks being
+ *   offered via transforms, paste or patterns.
+ * - Patterns edited in the post editor don't allow the Code Bin block: synced
+ *   patterns can't store the code in meta, see inc/meta.php. The site editor
+ *   has no post in its context, so the block is also blocked in JavaScript,
+ *   see index.js.
  *
  * @param bool|string[]            $allowed_block_types Allowed block types, true for all.
  * @param \WP_Block_Editor_Context $block_editor_context Editor context.
  * @return bool|string[] Allowed block types.
  */
 function filter_allowed_block_types( $allowed_block_types, $block_editor_context ) {
-	if ( empty( $block_editor_context->post ) || POST_TYPE !== $block_editor_context->post->post_type ) {
+	if ( empty( $block_editor_context->post ) ) {
 		return $allowed_block_types;
 	}
 
-	return array( BLOCK_NAME );
+	if ( POST_TYPE === $block_editor_context->post->post_type ) {
+		return array( BLOCK_NAME );
+	}
+
+	if ( 'wp_block' !== $block_editor_context->post->post_type || false === $allowed_block_types ) {
+		return $allowed_block_types;
+	}
+
+	if ( true === $allowed_block_types ) {
+		$allowed_block_types = array_keys( \WP_Block_Type_Registry::get_instance()->get_all_registered() );
+	}
+
+	return array_values( array_diff( $allowed_block_types, array( BLOCK_NAME ) ) );
 }
 
 /**

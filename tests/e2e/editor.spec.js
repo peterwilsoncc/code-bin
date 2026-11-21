@@ -326,6 +326,177 @@ test.describe( 'Code Bin editor', () => {
 		} );
 	} );
 
+	test.describe( 'synced patterns', () => {
+		/**
+		 * Create a synced pattern.
+		 *
+		 * @param {Object} requestUtils Request utils.
+		 * @return {Promise<number>} Pattern ID.
+		 */
+		async function createPattern( requestUtils ) {
+			const pattern = await requestUtils.rest( {
+				method: 'POST',
+				path: '/wp/v2/blocks',
+				data: {
+					title: 'E2E pattern',
+					status: 'publish',
+					content:
+						'<!-- wp:paragraph --><p>Pattern</p><!-- /wp:paragraph -->',
+				},
+			} );
+			return pattern.id;
+		}
+
+		/**
+		 * Check the inserter doesn't offer the Code Bin block.
+		 *
+		 * Waits for the core Code block to be found first: the results are
+		 * debounced, so checking straight away would find nothing either way.
+		 *
+		 * @param {Object} page Page.
+		 */
+		async function expectNotInInserter( page ) {
+			await page
+				.getByRole( 'button', { name: 'Block Inserter', exact: true } )
+				.click();
+			await page
+				.getByRole( 'region', { name: 'Block Library' } )
+				.getByRole( 'searchbox', { name: 'Search' } )
+				.fill( 'Code' );
+			const results = page.getByRole( 'listbox', { name: 'Blocks' } );
+			await expect(
+				results.getByRole( 'option', { name: 'Code', exact: true } )
+			).toBeVisible();
+			await expect(
+				results.getByRole( 'option', { name: 'Code Bin', exact: true } )
+			).toHaveCount( 0 );
+		}
+
+		/**
+		 * Whether the Code Bin block can be inserted at the top level.
+		 *
+		 * @param {Object} page Page.
+		 * @return {Promise<boolean>} Whether the block can be inserted.
+		 */
+		function canInsertCodeBin( page ) {
+			return page.evaluate(
+				( name ) =>
+					window.wp.data
+						.select( 'core/block-editor' )
+						.canInsertBlockType( name ),
+				BLOCK_NAME
+			);
+		}
+
+		test.afterAll( async ( { requestUtils } ) => {
+			await requestUtils.deleteAllBlocks();
+		} );
+
+		test( 'cannot create a pattern from the block', async ( {
+			admin,
+			editor,
+			page,
+		} ) => {
+			await admin.createNewPost();
+			await editor.insertBlock( {
+				name: 'core/paragraph',
+				attributes: { content: 'Paragraph' },
+			} );
+			await editor.insertBlock( { name: BLOCK_NAME } );
+			const toolbar = page.getByRole( 'toolbar', {
+				name: 'Block tools',
+			} );
+			const menu = page.getByRole( 'menu', { name: 'Options' } );
+
+			// Other blocks can be made into patterns.
+			await editor.selectBlocks(
+				editor.canvas.getByRole( 'document', {
+					name: 'Block: Paragraph',
+				} )
+			);
+			await toolbar.getByRole( 'button', { name: 'Options' } ).click();
+			await expect(
+				menu.getByRole( 'menuitem', { name: 'Create pattern' } )
+			).toBeVisible();
+			await page.keyboard.press( 'Escape' );
+
+			await editor.selectBlocks( getBlock( editor.canvas ) );
+			await toolbar.getByRole( 'button', { name: 'Options' } ).click();
+			await expect( menu ).toBeVisible();
+			await expect(
+				menu.getByRole( 'menuitem', { name: 'Create pattern' } )
+			).toHaveCount( 0 );
+		} );
+
+		test( 'cannot be inserted in a pattern in the site editor', async ( {
+			admin,
+			page,
+			requestUtils,
+		} ) => {
+			const patternId = await createPattern( requestUtils );
+			await admin.visitSiteEditor( {
+				postId: patternId,
+				postType: 'wp_block',
+				canvas: 'edit',
+			} );
+
+			await expectNotInInserter( page );
+			expect( await canInsertCodeBin( page ) ).toBe( false );
+		} );
+
+		test( 'cannot be inserted in a pattern in the post editor', async ( {
+			admin,
+			page,
+			requestUtils,
+		} ) => {
+			const patternId = await createPattern( requestUtils );
+			await admin.visitAdminPage(
+				'post.php',
+				`post=${ patternId }&action=edit`
+			);
+
+			await expectNotInInserter( page );
+			expect( await canInsertCodeBin( page ) ).toBe( false );
+		} );
+
+		test( 'cannot be inserted in a synced pattern in a post', async ( {
+			admin,
+			editor,
+			page,
+			requestUtils,
+		} ) => {
+			const patternId = await createPattern( requestUtils );
+			await admin.createNewPost();
+			await editor.insertBlock( {
+				name: 'core/block',
+				attributes: { ref: patternId },
+			} );
+			await expect(
+				editor.canvas.getByText( 'Pattern', { exact: true } )
+			).toBeVisible();
+
+			// Core also locks a synced pattern's blocks when it's in a post.
+			const canInsert = await page.evaluate( ( name ) => {
+				const store = window.wp.data.select( 'core/block-editor' );
+				const [ pattern ] = store.getBlocksByName( 'core/block' );
+				const [ inner ] = store.getBlockOrder( pattern );
+				return {
+					post: store.canInsertBlockType( name ),
+					pattern: store.canInsertBlockType( name, pattern ),
+					nested: store.canInsertBlockType(
+						name,
+						store.getBlockParents( inner ).at( -1 ) ?? pattern
+					),
+				};
+			}, BLOCK_NAME );
+			expect( canInsert ).toEqual( {
+				post: true,
+				pattern: false,
+				nested: false,
+			} );
+		} );
+	} );
+
 	test.describe( 'preview', () => {
 		test( 'previews the code as it is edited', async ( {
 			admin,
