@@ -223,11 +223,54 @@ function generate_code_id() {
 /**
  * Get the code meta of a post.
  *
+ * In previews of published posts, the code is read from the post's autosave,
+ * see get_preview_meta_source().
+ *
  * @param int $post_id Post ID.
  * @return array Code meta, keyed by code ID.
  */
 function get_code_meta( $post_id ) {
+	$source_id = get_preview_meta_source( $post_id );
+	if ( $source_id !== $post_id ) {
+		return sanitize_code_meta( get_metadata_raw( 'post', $source_id, META_KEY, true ) );
+	}
+
 	return sanitize_code_meta( get_post_meta( $post_id, META_KEY, true ) );
+}
+
+/**
+ * Get the post to read the code meta from when previewing a published post.
+ *
+ * Previews of published posts show their autosave, including its revisioned
+ * meta. WordPress reads the meta via _wp_preview_meta_filter(), which returns
+ * a single meta value without wrapping it in an array, so get_metadata() takes
+ * its first element: array meta like the code is lost and the preview shows
+ * no code. Instead the autosave's meta is read directly.
+ *
+ * Only applies when WordPress has added _wp_preview_meta_filter(), which it
+ * does after checking the preview nonce, so the autosave isn't shown to
+ * visitors adding `?preview=true` to a URL. Matches the filter's conditions.
+ *
+ * @param int $post_id Post ID.
+ * @return int ID of the post to read the meta from: the autosave, or the post itself.
+ */
+function get_preview_meta_source( $post_id ) {
+	if ( false === has_filter( 'get_post_metadata', '_wp_preview_meta_filter' ) ) {
+		return $post_id;
+	}
+
+	$post = get_post();
+	if ( ! $post || $post->ID !== (int) $post_id || 'revision' === $post->post_type ) {
+		return $post_id;
+	}
+
+	// Autosaves created without the meta, eg by REST API clients, show the post's code.
+	$autosave = wp_get_post_autosave( $post->ID );
+	if ( ! $autosave || ! metadata_exists( 'post', $autosave->ID, META_KEY ) ) {
+		return $post_id;
+	}
+
+	return $autosave->ID;
 }
 
 /**

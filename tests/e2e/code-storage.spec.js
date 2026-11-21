@@ -134,6 +134,30 @@ async function savePost( page ) {
 	).toBeVisible();
 }
 
+/**
+ * Open a preview of the post being edited.
+ *
+ * `editor.openPreviewPage()` looks for the menu item's older label.
+ *
+ * @param {Object} page Page.
+ * @return {Promise<Object>} Preview page.
+ */
+async function openPreview( page ) {
+	await page
+		.getByRole( 'region', { name: 'Editor top bar' } )
+		.getByRole( 'button', { name: 'View', exact: true } )
+		.click();
+	const [ preview ] = await Promise.all( [
+		page.context().waitForEvent( 'page' ),
+		page
+			.getByRole( 'menuitem', {
+				name: /^Preview (in new tab|\(opens in a new tab\))/,
+			} )
+			.click(),
+	] );
+	return preview;
+}
+
 test.describe( 'Code Bin code storage', () => {
 	test.afterAll( async ( { requestUtils } ) => {
 		await requestUtils.deleteAllPosts( 'code-bins' );
@@ -245,6 +269,77 @@ test.describe( 'Code Bin code storage', () => {
 
 		await page.goto( link );
 		await expect( getConsole( getBlock( page ) ) ).toHaveText( '2' );
+	} );
+
+	test.describe( 'previews', () => {
+		test( 'show unsaved code in a draft', async ( {
+			admin,
+			editor,
+			page,
+			requestUtils,
+		} ) => {
+			await admin.createNewPost( {
+				postType: 'code_bin',
+				title: 'Draft preview',
+			} );
+			const block = getBlock( editor.canvas );
+			await editPanel( block, 'html', '<p>First draft</p>' );
+			await editor.saveDraft();
+
+			await editPanel( block, 'html', '<p>Unsaved draft</p>' );
+			const preview = await openPreview( page );
+
+			await expect(
+				getBlock( preview ).locator( 'code.language-html' )
+			).toHaveText( '<p>Unsaved draft</p>' );
+			await preview.close();
+
+			// Previewing a draft saves it.
+			const postId = await editor.canvas
+				.locator( 'body' )
+				.evaluate( () =>
+					window.parent.wp.data
+						.select( 'core/editor' )
+						.getCurrentPostId()
+				);
+			const post = await getSavedPost(
+				requestUtils,
+				'code-bins',
+				postId
+			);
+			expect(
+				Object.values( post.meta[ META_KEY ] ).map(
+					( code ) => code.html
+				)
+			).toEqual( [ '<p>Unsaved draft</p>' ] );
+		} );
+
+		test( 'show unsaved code without changing a published code bin', async ( {
+			admin,
+			editor,
+			page,
+			requestUtils,
+		} ) => {
+			const { id, link } = await createCodeBin( requestUtils, {
+				html: '<p>Published</p>',
+			} );
+			await admin.editPost( id );
+			const block = getBlock( editor.canvas );
+			await editPanel( block, 'html', '<p>Unsaved change</p>' );
+
+			const preview = await openPreview( page );
+			await expect(
+				getBlock( preview ).locator( 'code.language-html' ),
+				'The preview should show the unsaved code.'
+			).toHaveText( '<p>Unsaved change</p>' );
+			await preview.close();
+
+			await page.goto( link );
+			await expect(
+				getBlock( page ).locator( 'code.language-html' ),
+				'The published code bin should be unchanged.'
+			).toHaveText( '<p>Published</p>' );
+		} );
 	} );
 
 	test( 'copies the code of a duplicated block', async ( {

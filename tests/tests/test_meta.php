@@ -288,6 +288,89 @@ class Test_Meta extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Create an autosave of a post, with code in its meta.
+	 *
+	 * @param int        $post_id Post ID.
+	 * @param array|null $code    Code meta for the autosave, null for none.
+	 * @return int Autosave ID.
+	 */
+	private function create_autosave( $post_id, $code ) {
+		$autosave_id = _wp_put_post_revision(
+			array(
+				'ID'           => $post_id,
+				'post_content' => get_post_field( 'post_content', $post_id, 'raw' ),
+				'post_title'   => 'Autosave',
+			),
+			true
+		);
+		if ( null !== $code ) {
+			update_metadata( 'post', $autosave_id, META_KEY, wp_slash( $code ) );
+		}
+
+		return $autosave_id;
+	}
+
+	/**
+	 * Render the blocks of a post as its preview.
+	 *
+	 * @param int  $post_id    Post ID.
+	 * @param bool $nonce_ok   Whether the preview nonce was valid: WordPress only adds its
+	 *                         preview meta filter after checking it.
+	 * @return string Rendered blocks.
+	 */
+	private function render_preview( $post_id, $nonce_ok ) {
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+		if ( $nonce_ok ) {
+			add_filter( 'get_post_metadata', '_wp_preview_meta_filter', 10, 4 );
+		}
+
+		$html = do_blocks( get_post_field( 'post_content', $post_id ) );
+		remove_filter( 'get_post_metadata', '_wp_preview_meta_filter', 10 );
+
+		return $html;
+	}
+
+	/**
+	 * Test previews of published posts show the code in the autosave.
+	 */
+	public function test_preview_uses_autosave_code() {
+		$post_id = $this->create_post( array( 'abc123' => array( 'html' => '<p>Published</p>' ) ) );
+		wp_set_current_user( self::$editor );
+		$this->create_autosave( $post_id, array( 'abc123' => array( 'html' => '<p>Autosaved</p>' ) ) );
+
+		$html = $this->render_preview( $post_id, true );
+
+		$this->assertStringContainsString( '&lt;p&gt;Autosaved&lt;/p&gt;', $html );
+		$this->assertStringNotContainsString( 'Published', $html );
+	}
+
+	/**
+	 * Test the autosave's code isn't shown without a valid preview nonce.
+	 */
+	public function test_preview_without_nonce_shows_published_code() {
+		$post_id = $this->create_post( array( 'abc123' => array( 'html' => '<p>Published</p>' ) ) );
+		wp_set_current_user( self::$editor );
+		$this->create_autosave( $post_id, array( 'abc123' => array( 'html' => '<p>Autosaved</p>' ) ) );
+
+		$html = $this->render_preview( $post_id, false );
+
+		$this->assertStringContainsString( '&lt;p&gt;Published&lt;/p&gt;', $html );
+		$this->assertStringNotContainsString( 'Autosaved', $html );
+	}
+
+	/**
+	 * Test previews show the post's code when the autosave has none.
+	 */
+	public function test_preview_autosave_without_code_shows_published_code() {
+		$post_id = $this->create_post( array( 'abc123' => array( 'html' => '<p>Published</p>' ) ) );
+		wp_set_current_user( self::$editor );
+		$this->create_autosave( $post_id, null );
+
+		$this->assertStringContainsString( '&lt;p&gt;Published&lt;/p&gt;', $this->render_preview( $post_id, true ) );
+	}
+
+	/**
 	 * Test a block can't render another post's code.
 	 */
 	public function test_render_ignores_other_posts_code() {
