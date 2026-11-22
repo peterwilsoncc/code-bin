@@ -23,6 +23,7 @@ import { scheduleHighlight } from './lib/highlight';
 import { createPreview, describeStatus } from './lib/preview';
 import useCodeStorage from './lib/use-code-storage';
 import useGeneratedAnchor from './lib/use-generated-anchor';
+import { getTabHint, onCodeKeyDown } from './lib/tab-indent';
 import './editor.scss';
 
 /** @typedef {import('./lib/preview').Code} Code */
@@ -98,6 +99,7 @@ function PanelTabTitle( { title, hasCode } ) {
  */
 function CodeInput( { language, value, onChange, label, placeholder } ) {
 	const codeRef = useRef();
+	const hintId = useInstanceId( CodeInput, 'code-bin-tab-hint' );
 
 	useEffect( () => {
 		scheduleHighlight( codeRef.current?.ownerDocument );
@@ -117,12 +119,17 @@ function CodeInput( { language, value, onChange, label, placeholder } ) {
 				value={ value }
 				onChange={ ( event ) => onChange( event.target.value ) }
 				aria-label={ label }
+				aria-describedby={ hintId }
 				placeholder={ placeholder }
 				spellCheck={ false }
 				autoCapitalize="off"
 				autoComplete="off"
 				autoCorrect="off"
 			/>
+			{ /* Hidden elements can still describe the textarea. Tab is handled in onBlockKeyDown(). */ }
+			<span id={ hintId } hidden>
+				{ getTabHint() }
+			</span>
 		</div>
 	);
 }
@@ -166,6 +173,23 @@ function onCodeTabKeyDown( event ) {
 	target.focus();
 	// Selects the tab, as TabPanel selects tabs on click.
 	target.click();
+}
+
+/**
+ * Handle key presses in the block before the block editor does.
+ *
+ * Runs on the block, below the editor's own arrow key and Tab handling, which
+ * ignore key presses that have been handled (`defaultPrevented`).
+ *
+ * @param {KeyboardEvent} event Keydown event.
+ */
+function onBlockKeyDown( event ) {
+	if ( event.target.closest?.( '.code-bin__input' ) ) {
+		onCodeKeyDown( event );
+		return;
+	}
+
+	onCodeTabKeyDown( event );
 }
 
 const OUTPUT_TABS = [
@@ -357,9 +381,9 @@ export default function Edit( {
 
 	useGeneratedAnchor( { clientId, name, anchor, setAttributes } );
 
-	const codeTabKeysRef = useRefEffect( ( element ) => {
-		element.addEventListener( 'keydown', onCodeTabKeyDown );
-		return () => element.removeEventListener( 'keydown', onCodeTabKeyDown );
+	const keyboardRef = useRefEffect( ( element ) => {
+		element.addEventListener( 'keydown', onBlockKeyDown );
+		return () => element.removeEventListener( 'keydown', onBlockKeyDown );
 	}, [] );
 
 	// The code is stored in the post's meta, see use-code-storage.js.
@@ -406,7 +430,7 @@ export default function Edit( {
 			</InspectorControls>
 			<div
 				{ ...useBlockProps( {
-					ref: codeTabKeysRef,
+					ref: keyboardRef,
 					className: 'code-bin wp-exclude-emoji',
 				} ) }
 			>

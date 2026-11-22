@@ -184,4 +184,264 @@ test.describe( 'Code Bin keyboard', () => {
 			);
 		} );
 	} );
+
+	test.describe( 'Tab in the code', () => {
+		const LOCATIONS = [
+			{
+				name: 'on the site',
+				/**
+				 * Open a code bin on the site.
+				 *
+				 * @param {Object} fixtures              Test fixtures.
+				 * @param {Object} fixtures.page         Page.
+				 * @param {Object} fixtures.requestUtils Request utils.
+				 * @return {Promise<Object>} Block locator.
+				 */
+				async open( { page, requestUtils } ) {
+					const { link } = await createCodeBin( requestUtils, {
+						...CODE,
+						editable: true,
+					} );
+					await page.goto( link );
+					const block = getBlock( page );
+					await expect(
+						block.locator( 'iframe.code-bin__preview' )
+					).toHaveAttribute( 'sandbox', 'allow-scripts' );
+					return block;
+				},
+			},
+			{
+				name: 'in the editor',
+				/**
+				 * Open a code bin in the editor.
+				 *
+				 * @param {Object} fixtures              Test fixtures.
+				 * @param {Object} fixtures.admin        Admin utils.
+				 * @param {Object} fixtures.editor       Editor utils.
+				 * @param {Object} fixtures.requestUtils Request utils.
+				 * @return {Promise<Object>} Block locator.
+				 */
+				async open( { admin, editor, requestUtils } ) {
+					const { id } = await createCodeBin( requestUtils, CODE );
+					await admin.editPost( id );
+					const block = getBlock( editor.canvas );
+					await expect( block ).toBeVisible();
+					return block;
+				},
+			},
+		];
+
+		/**
+		 * Get the HTML textarea, filled with code and with text selected.
+		 *
+		 * @param {Object} block Block locator.
+		 * @param {string} code  Code.
+		 * @param {number} start Selection start.
+		 * @param {number} [end] Selection end, defaults to the start.
+		 * @return {Promise<Object>} Textarea locator.
+		 */
+		async function getTextarea( block, code, start, end = start ) {
+			await block.getByRole( 'tab', { name: /^HTML/ } ).click();
+			const textarea = block.getByRole( 'textbox', {
+				name: 'HTML',
+				exact: true,
+			} );
+			await textarea.fill( code );
+			await textarea.evaluate(
+				( element, [ from, to ] ) => {
+					element.focus();
+					element.setSelectionRange( from, to );
+				},
+				[ start, end ]
+			);
+			return textarea;
+		}
+
+		/**
+		 * Check a textarea's value, selection and highlighted copy.
+		 *
+		 * The highlighted copy updates on input, so it shows the change was
+		 * made as if typed.
+		 *
+		 * @param {Object} block    Block locator.
+		 * @param {Object} textarea Textarea locator.
+		 * @param {string} value    Expected value.
+		 * @param {number} start    Expected selection start.
+		 * @param {number} [end]    Expected selection end, defaults to the start.
+		 */
+		async function expectCode(
+			block,
+			textarea,
+			value,
+			start,
+			end = start
+		) {
+			await expect( textarea ).toHaveValue( value );
+			await expect( textarea ).toBeFocused();
+			expect(
+				await textarea.evaluate( ( element ) => [
+					element.selectionStart,
+					element.selectionEnd,
+				] )
+			).toEqual( [ start, end ] );
+			await expect
+				.poll( () =>
+					block
+						.locator(
+							'.code-bin__panel:not([hidden]) code, .code-bin__editor code'
+						)
+						.first()
+						.textContent()
+				)
+				.toBe( value + '\n' );
+		}
+
+		/**
+		 * Press the shortcut switching Tab between indenting and moving focus.
+		 *
+		 * @param {Object} page Page.
+		 */
+		async function toggleTabFocus( page ) {
+			const isApple = await page.evaluate( () =>
+				/mac|iphone|ipad/i.test( window.navigator.platform )
+			);
+			await page.keyboard.press(
+				isApple ? 'Shift+Alt+KeyM' : 'Control+KeyM'
+			);
+		}
+
+		for ( const location of LOCATIONS ) {
+			test.describe( location.name, () => {
+				test( 'Tab inserts a tab', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					const textarea = await getTextarea( block, 'ab', 1 );
+
+					await page.keyboard.press( 'Tab' );
+					await expectCode( block, textarea, 'a\tb', 2 );
+				} );
+
+				test( 'Tab and Shift+Tab indent and outdent the selected lines', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					const code = 'one\n\ntwo\nthree';
+					// From inside "one" to inside "two".
+					const textarea = await getTextarea( block, code, 1, 7 );
+
+					await page.keyboard.press( 'Tab' );
+					// Empty lines aren't indented.
+					await expectCode(
+						block,
+						textarea,
+						'\tone\n\n\ttwo\nthree',
+						2,
+						9
+					);
+
+					await page.keyboard.press( 'Shift+Tab' );
+					await expectCode( block, textarea, code, 1, 7 );
+				} );
+
+				test( 'Shift+Tab removes indenting spaces', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					const textarea = await getTextarea( block, '      x', 7 );
+
+					await page.keyboard.press( 'Shift+Tab' );
+					await expectCode( block, textarea, '  x', 3 );
+				} );
+
+				test( 'Escape then Tab moves focus', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					const textarea = await getTextarea( block, 'ab', 1 );
+
+					await page.keyboard.press( 'Escape' );
+					await page.keyboard.press( 'Tab' );
+
+					await expect( textarea ).not.toBeFocused();
+					await expect( textarea ).toHaveValue( 'ab' );
+				} );
+
+				test( 'the shortcut switches Tab between indenting and moving focus', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					const textarea = await getTextarea( block, 'ab', 1 );
+
+					await toggleTabFocus( page );
+					await page.keyboard.press( 'Tab' );
+					await expect( textarea ).not.toBeFocused();
+					await expect( textarea ).toHaveValue( 'ab' );
+
+					await textarea.evaluate( ( element ) => {
+						element.focus();
+						element.setSelectionRange( 1, 1 );
+					} );
+					await toggleTabFocus( page );
+					await page.keyboard.press( 'Tab' );
+					await expectCode( block, textarea, 'a\tb', 2 );
+				} );
+
+				test( 'the textarea describes the keys', async ( {
+					page,
+					admin,
+					editor,
+					requestUtils,
+				} ) => {
+					const fixtures = { page, admin, editor, requestUtils };
+					const block = await location.open( fixtures );
+					await expect(
+						block.getByRole( 'textbox', {
+							name: 'HTML',
+							exact: true,
+						} )
+					).toHaveAccessibleDescription(
+						/^Tab inserts a tab and Shift\+Tab removes one\. To move focus, press Escape then Tab/
+					);
+				} );
+			} );
+		}
+
+		test( 'on the site, Tab indents again after another key', async ( {
+			page,
+			admin,
+			editor,
+			requestUtils,
+		} ) => {
+			const fixtures = { page, admin, editor, requestUtils };
+			const block = await LOCATIONS[ 0 ].open( fixtures );
+			const textarea = await getTextarea( block, 'ab', 1 );
+
+			// Escape only lets the next key press move focus.
+			await page.keyboard.press( 'Escape' );
+			await page.keyboard.press( 'ArrowRight' );
+			await page.keyboard.press( 'Tab' );
+			await expectCode( block, textarea, 'ab\t', 3 );
+		} );
+	} );
 } );
