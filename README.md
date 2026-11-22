@@ -2,7 +2,7 @@
 Contributors: peterwilsoncc
 Tags: code, html, css, javascript, block
 Tested up to: 7.2
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: MIT
 License URI: https://github.com/peterwilsoncc/code-bin/blob/main/LICENSE
 ---
@@ -154,6 +154,31 @@ The plugin code is licensed under the [MIT License](https://github.com/peterwils
 The bundled [microlighter](https://github.com/davatron5000/microlighter), [Acorn](https://github.com/acornjs/acorn) and [acorn-walk](https://github.com/acornjs/acorn/tree/master/acorn-walk) libraries are also licensed under the MIT License.
 
 ## Changelog
+
+### 1.5.0
+
+**Requires WordPress 7.0 or later.**
+
+* Code is no longer changed when saved by users without the `unfiltered_html` capability, eg authors. It's now stored in post meta.
+* Existing code bins keep working. They move to the new storage when next edited, or all at once with `wp code-bin migrate`.
+* Copying, duplicating or pasting a code bin block copies its code, including into another post.
+* Tab indents code and Shift+Tab outdents it. To move focus, press Escape then Tab, or toggle Tab with Ctrl+M (Shift+Option+M on macOS).
+* The editor's code tabs can be switched with the arrow keys, Home and End.
+* Code bins can no longer be made into patterns or added to them.
+* Fixed: HTML entities in code, eg `&lt;b&gt;`, are kept as written.
+* Fixed: HTML entities in styles from the `code_bin_preview_styles` filter are kept as written.
+* Developers: code is in the REST API as the `_code_bin` meta field, keyed by each block's `codeId`.
+
+#### Migrating existing code bins
+
+Run `wp code-bin migrate` after updating to move all existing code bins to the new storage.
+
+* `--dry-run` shows what would change.
+* `--post_type` and `--include` limit it to post types or post IDs.
+* `--preserve-modified` keeps the posts' modified dates.
+* It's safe to run more than once.
+* It lists code bins whose CSS or JavaScript contains HTML entities, which WordPress may have added. Check these: code changed before this release can't be recovered.
+* On multisite, run it for each site: `wp site list --field=url | xargs -I % wp --url=% code-bin migrate`.
 
 ### 1.3.0
 

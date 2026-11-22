@@ -9,7 +9,7 @@ namespace CodeBin;
 
 defined( 'ABSPATH' ) || exit;
 
-const PLUGIN_VERSION = '1.4.0';
+const PLUGIN_VERSION = '1.5.0';
 
 const POST_TYPE = 'code_bin';
 
