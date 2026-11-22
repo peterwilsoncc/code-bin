@@ -17,6 +17,7 @@ const {
 	createCodeBin,
 	getBlock,
 	getConsole,
+	getPreview,
 } = require( './utils/code-bin' );
 
 const PANEL_LABELS = { html: 'HTML', css: 'CSS', javascript: 'JavaScript' };
@@ -377,6 +378,183 @@ test.describe( 'Code Bin code storage', () => {
 				getBlock( page ).locator( 'code.language-html' ),
 				'The published code bin should be unchanged.'
 			).toHaveText( '<p>Published</p>' );
+		} );
+	} );
+
+	test.describe( 'undo', () => {
+		/**
+		 * Get the editor's undo state and the first Code Bin block's code ID.
+		 *
+		 * @param {Object} page Page.
+		 * @return {Promise<{hasUndo: boolean, codeIds: string[]}>} State.
+		 */
+		function getUndoState( page ) {
+			return page.evaluate( () => {
+				const { select } = window.wp.data;
+				return {
+					hasUndo: select( 'core' ).hasUndo(),
+					codeIds: select( 'core/block-editor' )
+						.getBlocksByName( 'code-bin-block/code-bin-block' )
+						.map(
+							( clientId ) =>
+								select(
+									'core/block-editor'
+								).getBlockAttributes( clientId ).codeId
+						),
+				};
+			} );
+		}
+
+		/**
+		 * Click the editor's Undo or Redo button.
+		 *
+		 * The buttons are used rather than keyboard shortcuts, which a focused
+		 * textarea handles itself.
+		 *
+		 * @param {Object} page Page.
+		 * @param {string} name Undo or Redo.
+		 */
+		async function clickHistoryButton( page, name ) {
+			await page
+				.getByRole( 'region', { name: 'Editor top bar' } )
+				.getByRole( 'button', { name, exact: true } )
+				.click();
+		}
+
+		test( 'generating the code ID is not an undo step', async ( {
+			admin,
+			editor,
+			page,
+		} ) => {
+			/*
+			 * Inserted in a post: in a new code bin, WordPress makes adding the
+			 * template's block an undo step.
+			 */
+			await admin.createNewPost();
+			await editor.insertBlock( { name: BLOCK_NAME } );
+			await expect( async () => {
+				expect( ( await getUndoState( page ) ).codeIds[ 0 ] ).toMatch(
+					/^[a-z0-9]{12}$/
+				);
+			} ).toPass();
+
+			// One undo removes the block: there's no step that only removes the code ID.
+			await clickHistoryButton( page, 'Undo' );
+			await expect( getBlock( editor.canvas ) ).toHaveCount( 0 );
+			expect( await getUndoState( page ) ).toEqual( {
+				hasUndo: false,
+				codeIds: [],
+			} );
+		} );
+
+		test( 'undoes and redoes code changes', async ( {
+			admin,
+			editor,
+			page,
+		} ) => {
+			await admin.createNewPost( { postType: 'code_bin' } );
+			const block = getBlock( editor.canvas );
+			await editPanel( block, 'html', '<p>First</p>' );
+			await editPanel( block, 'css', 'p { color: red; }' );
+			await editPanel( block, 'html', '<p>Second</p>' );
+			const { codeIds } = await getUndoState( page );
+
+			await clickHistoryButton( page, 'Undo' );
+			expect(
+				( await getUndoState( page ) ).codeIds,
+				'Undoing the code should keep the code ID.'
+			).toEqual( codeIds );
+			expect( await getEditorCode( block ) ).toEqual( {
+				html: '<p>First</p>',
+				css: 'p { color: red; }',
+				javascript: '',
+			} );
+			await expect(
+				getPreview( block ).locator( 'p' ),
+				'The preview should show the undone code.'
+			).toHaveText( 'First' );
+
+			await clickHistoryButton( page, 'Undo' );
+			expect( ( await getEditorCode( block ) ).css ).toBe( '' );
+
+			await clickHistoryButton( page, 'Redo' );
+			await clickHistoryButton( page, 'Redo' );
+			expect( await getEditorCode( block ) ).toEqual( {
+				html: '<p>Second</p>',
+				css: 'p { color: red; }',
+				javascript: '',
+			} );
+			expect( ( await getUndoState( page ) ).codeIds ).toEqual( codeIds );
+		} );
+
+		test( 'moving code saved in attributes to meta is not an undo step', async ( {
+			admin,
+			editor,
+			page,
+			requestUtils,
+		} ) => {
+			const legacyCode = {
+				html: '<p>Legacy</p>',
+				css: '',
+				javascript: '',
+			};
+			const { id } = await createCodeBin(
+				requestUtils,
+				legacyCode,
+				{},
+				{ legacy: true }
+			);
+			await admin.editPost( id );
+			const block = getBlock( editor.canvas );
+
+			let state;
+			await expect( async () => {
+				state = await getUndoState( page );
+				expect( state.codeIds[ 0 ] ).toMatch( /^[a-z0-9]{12}$/ );
+			} ).toPass();
+			expect( state.hasUndo, 'There should be nothing to undo.' ).toBe(
+				false
+			);
+			expect( await getEditorCode( block ) ).toEqual( legacyCode );
+		} );
+
+		test( "undoing and redoing a duplicate keeps each block's code", async ( {
+			admin,
+			editor,
+			page,
+			pageUtils,
+		} ) => {
+			await admin.createNewPost();
+			await editor.insertBlock( { name: BLOCK_NAME } );
+			const blocks = getBlock( editor.canvas );
+			await editPanel( blocks.first(), 'html', '<p>Original</p>' );
+
+			await editor.selectBlocks( blocks.first() );
+			await pageUtils.pressKeys( 'primaryShift+d' );
+			await expect( blocks ).toHaveCount( 2 );
+			const { codeIds } = await getUndoState( page );
+			expect( new Set( codeIds ).size ).toBe( 2 );
+
+			await clickHistoryButton( page, 'Undo' );
+			await expect( blocks ).toHaveCount( 1 );
+			expect( ( await getEditorCode( blocks.first() ) ).html ).toBe(
+				'<p>Original</p>'
+			);
+			expect( ( await getUndoState( page ) ).codeIds ).toEqual( [
+				codeIds[ 0 ],
+			] );
+
+			await clickHistoryButton( page, 'Redo' );
+			await expect( blocks ).toHaveCount( 2 );
+			expect(
+				( await getUndoState( page ) ).codeIds,
+				'The copy should keep its own code ID.'
+			).toEqual( codeIds );
+			for ( const index of [ 0, 1 ] ) {
+				expect(
+					( await getEditorCode( blocks.nth( index ) ) ).html
+				).toBe( '<p>Original</p>' );
+			}
 		} );
 	} );
 
