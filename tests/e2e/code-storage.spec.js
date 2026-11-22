@@ -158,7 +158,55 @@ async function openPreview( page ) {
 	return preview;
 }
 
+/**
+ * Log in as the author, replacing the admin's session.
+ *
+ * @param {Object} page Page.
+ */
+async function logInAsAuthor( page ) {
+	await page.context().clearCookies();
+	await page.goto( '/wp-login.php' );
+	await page
+		.getByLabel( 'Username or Email Address' )
+		.fill( AUTHOR.username );
+	await page
+		.getByLabel( 'Password', { exact: true } )
+		.fill( AUTHOR.password );
+	await page.getByRole( 'button', { name: 'Log In' } ).click();
+	await page.waitForURL( /wp-admin/ );
+}
+
+/**
+ * Copy a code bin block with the clipboard and paste it into a new post.
+ *
+ * The clipboard is emulated by `pageUtils.pressKeys()`, which fires real copy
+ * and paste events and keeps the copied data between pages.
+ *
+ * @param {Object} args           Arguments.
+ * @param {Object} args.admin     Admin utils.
+ * @param {Object} args.editor    Editor utils.
+ * @param {Object} args.pageUtils Page utils.
+ * @param {number} args.from      ID of the post to copy the block from.
+ * @param {number} [args.times]   How many times to paste the block.
+ */
+async function copyToNewPost( { admin, editor, pageUtils, from, times = 1 } ) {
+	await admin.editPost( from );
+	await editor.selectBlocks( getBlock( editor.canvas ) );
+	await pageUtils.pressKeys( 'primary+c' );
+
+	await admin.createNewPost( { title: 'Pasted code bin' } );
+	for ( let i = 0; i < times; i++ ) {
+		await editor.insertBlock( { name: 'core/paragraph' } );
+		await pageUtils.pressKeys( 'primary+v' );
+	}
+	await expect( getBlock( editor.canvas ) ).toHaveCount( times );
+}
+
 test.describe( 'Code Bin code storage', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		await requestUtils.createUser( AUTHOR );
+	} );
+
 	test.afterAll( async ( { requestUtils } ) => {
 		await requestUtils.deleteAllPosts( 'code-bins' );
 		await requestUtils.deleteAllPosts();
@@ -171,17 +219,7 @@ test.describe( 'Code Bin code storage', () => {
 		page,
 		requestUtils,
 	} ) => {
-		await requestUtils.createUser( AUTHOR );
-		await page.context().clearCookies();
-		await page.goto( '/wp-login.php' );
-		await page
-			.getByLabel( 'Username or Email Address' )
-			.fill( AUTHOR.username );
-		await page
-			.getByLabel( 'Password', { exact: true } )
-			.fill( AUTHOR.password );
-		await page.getByRole( 'button', { name: 'Log In' } ).click();
-		await page.waitForURL( /wp-admin/ );
+		await logInAsAuthor( page );
 
 		await admin.createNewPost( {
 			postType: 'code_bin',
@@ -392,50 +430,96 @@ test.describe( 'Code Bin code storage', () => {
 	test( 'copies the code of a block pasted from another post', async ( {
 		admin,
 		editor,
+		pageUtils,
 		requestUtils,
 	} ) => {
-		const codeId = 'pastedcode01';
-		const source = await requestUtils.rest( {
-			method: 'POST',
-			path: '/wp/v2/posts',
-			data: {
-				title: 'Source post',
-				status: 'publish',
-				content: `<!-- wp:${ BLOCK_NAME } {"codeId":"${ codeId }"} /-->`,
-				meta: {
-					[ META_KEY ]: {
-						[ codeId ]: {
-							html: '<p>Pasted</p>',
-							css: '',
-							javascript: 'console.log( 1 && 2 );',
-						},
-					},
-				},
-			},
+		const code = {
+			html: '<p>Pasted</p>',
+			css: '',
+			javascript: 'console.log( 1 && 2 );',
+		};
+		const source = await createCodeBin( requestUtils, code );
+
+		// Pasted twice: the second copy needs its own code ID.
+		await copyToNewPost( {
+			admin,
+			editor,
+			pageUtils,
+			from: source.id,
+			times: 2,
 		} );
 
-		// A block copied from the source post, as it's pasted.
-		await admin.createNewPost( { title: 'Pasted code bin' } );
-		await editor.insertBlock( {
-			name: BLOCK_NAME,
-			attributes: { codeId, codePost: source.id },
-		} );
-
-		const block = getBlock( editor.canvas );
-		await expect( async () => {
-			expect( await getEditorCode( block ) ).toEqual( {
-				html: '<p>Pasted</p>',
-				css: '',
-				javascript: 'console.log( 1 && 2 );',
-			} );
-		} ).toPass();
+		const blocks = getBlock( editor.canvas );
+		for ( const index of [ 0, 1 ] ) {
+			await expect( async () => {
+				expect(
+					await getEditorCode( blocks.nth( index ) ),
+					'The pasted blocks should have the code.'
+				).toEqual( code );
+			} ).toPass();
+		}
 
 		const postId = await editor.publishPost();
 		const post = await getSavedPost( requestUtils, 'posts', postId );
-		const [ attributes ] = getSavedAttributes( post.content.raw );
-		expect( attributes.codePost ).toBe( postId );
-		expect( post.meta[ META_KEY ][ attributes.codeId ].javascript ).toBe(
-			'console.log( 1 && 2 );'
+		const saved = getSavedAttributes( post.content.raw );
+		expect( saved.map( ( attributes ) => attributes.codePost ) ).toEqual( [
+			postId,
+			postId,
+		] );
+		expect(
+			new Set( saved.map( ( attributes ) => attributes.codeId ) ).size,
+			'Each pasted block should have its own code ID.'
+		).toBe( 2 );
+		for ( const attributes of saved ) {
+			expect( attributes ).not.toHaveProperty( 'javascript' );
+			expect( post.meta[ META_KEY ][ attributes.codeId ] ).toEqual(
+				code
+			);
+		}
+
+		// The source is unchanged.
+		const sourcePost = await getSavedPost(
+			requestUtils,
+			'code-bins',
+			source.id
 		);
+		expect( sourcePost.meta[ META_KEY ] ).toEqual( {
+			[ source.codeId ]: code,
+		} );
+	} );
+
+	test( 'warns when the code of a pasted block cannot be copied', async ( {
+		admin,
+		editor,
+		page,
+		pageUtils,
+		requestUtils,
+	} ) => {
+		// The admin copies a block from a draft the author can't read.
+		const source = await createCodeBin(
+			requestUtils,
+			{ html: '<p>Private draft</p>' },
+			{ status: 'draft' }
+		);
+		await admin.editPost( source.id );
+		await editor.selectBlocks( getBlock( editor.canvas ) );
+		await pageUtils.pressKeys( 'primary+c' );
+
+		await logInAsAuthor( page );
+		await admin.createNewPost( { title: 'Pasted by an author' } );
+		await editor.insertBlock( { name: 'core/paragraph' } );
+		await pageUtils.pressKeys( 'primary+v' );
+
+		const block = getBlock( editor.canvas );
+		await expect( block ).toHaveCount( 1 );
+		// The notice, not its copy announced to screen readers.
+		await expect(
+			page
+				.getByRole( 'region', { name: 'Editor content' } )
+				.getByText(
+					'The code of a copied Code Bin block could not be copied from the post it was copied from.'
+				)
+		).toBeVisible();
+		expect( ( await getEditorCode( block ) ).html ).toBe( '' );
 	} );
 } );
