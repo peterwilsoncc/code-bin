@@ -1,13 +1,20 @@
 /**
  * Code in a code bin must not be able to escape the preview's sandboxed iframe.
  *
- * Each attack runs in three scenarios:
+ * Each attack runs in four scenarios:
  *
- * - Saved code viewed by a logged in admin: the code bin's author can run
- *   code in every visitor's browser, so this is the scenario that matters.
- * - Saved code opened in the editor by an admin: another user's code runs in
- *   the editor's preview, with the admin's editor session around it.
+ * - Code saved by an author, viewed by a logged in admin: the code bin's
+ *   author can run code in every visitor's browser, so this is the scenario
+ *   that matters.
+ * - Code saved by an author, opened in the editor by an admin: another user's
+ *   code runs in the editor's preview, with the admin's editor session around it.
+ * - Code typed in the editor by an admin, who has the `unfiltered_html`
+ *   capability: the code runs in the editor's preview as it's typed.
  * - Code typed by a logged out visitor editing the code on the site.
+ *
+ * Authors don't have the `unfiltered_html` capability, but their code is
+ * stored in post meta, which kses doesn't filter. The saved scenarios check
+ * the attack was saved exactly as written, so kses can't have defused it.
  *
  * Each attack logs a marker when it's done, so the tests know it ran rather
  * than failing to start, then the tests check the page is untouched.
@@ -16,12 +23,21 @@
 /**
  * WordPress dependencies
  */
-const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' );
+const {
+	test,
+	expect,
+	RequestUtils,
+} = require( '@wordpress/e2e-test-utils-playwright' );
 
 /**
  * Internal dependencies
  */
-const { createCodeBin, getBlock, getConsole } = require( './utils/code-bin' );
+const {
+	META_KEY,
+	createCodeBin,
+	getBlock,
+	getConsole,
+} = require( './utils/code-bin' );
 
 // Unique to the run, used in URLs and content the attacks try to create.
 const TOKEN = `code-bin-pwned-${ Date.now() }`;
@@ -202,14 +218,53 @@ const PANEL_LABELS = { html: 'HTML', css: 'CSS', javascript: 'JavaScript' };
 // Name of the editor canvas iframe.
 const CANVAS_FRAME = 'editor-canvas';
 
-// The author of the code bins opened in the editor, set up before the tests.
-const author = { id: 0 };
+// The author saving the attacks, without the `unfiltered_html` capability.
+const AUTHOR = {
+	username: 'code-bin-author',
+	email: 'code-bin-author@example.com',
+	first_name: 'Code',
+	last_name: 'Author',
+	password: 'password',
+	roles: [ 'author' ],
+};
+
+// Request utils logged in as the author, set up before the tests.
+const author = { id: 0, requestUtils: null };
+
+/**
+ * Save an attack as the author and check it was saved exactly as written.
+ *
+ * @param {Object} requestUtils Request utils logged in as the admin.
+ * @param {Object} code         Attack code.
+ * @return {Promise<{id: number, link: string}>} The code bin's ID and URL.
+ */
+async function saveAsAuthor( requestUtils, code ) {
+	const codeBin = await createCodeBin( author.requestUtils, code );
+
+	const saved = await requestUtils.rest( {
+		path: `/wp/v2/code-bins/${ codeBin.id }`,
+		params: { context: 'edit' },
+	} );
+	expect( saved.author, 'The author should save the attack.' ).toBe(
+		author.id
+	);
+	expect(
+		saved.meta[ META_KEY ][ codeBin.codeId ],
+		'The attack should be saved exactly as written.'
+	).toEqual( {
+		html: code.html ?? '',
+		css: code.css ?? '',
+		javascript: code.javascript ?? '',
+	} );
+
+	return codeBin;
+}
 
 const SCENARIOS = [
 	{
-		name: 'saved code viewed by a logged in admin',
+		name: 'code saved by an author viewed by a logged in admin',
 		/**
-		 * Save the attack and view it as the admin.
+		 * Save the attack as the author and view it as the admin.
 		 *
 		 * @param {Object} args              Arguments.
 		 * @param {Object} args.page         Page logged in as the admin.
@@ -218,7 +273,7 @@ const SCENARIOS = [
 		 * @return {Promise<Attack>} The attack.
 		 */
 		async run( { page, requestUtils, code } ) {
-			const { link } = await createCodeBin( requestUtils, code );
+			const { link } = await saveAsAuthor( requestUtils, code );
 			await watchPage( page );
 			await page.goto( link );
 
@@ -232,11 +287,9 @@ const SCENARIOS = [
 		},
 	},
 	{
-		name: 'saved code opened in the editor by an admin',
+		name: 'code saved by an author opened in the editor by an admin',
 		/**
-		 * Save the attack as another user's code bin and edit it as the admin.
-		 *
-		 * The admin creates it on the author's behalf via the REST API.
+		 * Save the attack as the author and edit it as the admin.
 		 *
 		 * @param {Object} args              Arguments.
 		 * @param {Object} args.page         Page logged in as the admin.
@@ -247,9 +300,7 @@ const SCENARIOS = [
 		 * @return {Promise<Attack>} The attack.
 		 */
 		async run( { page, admin, editor, requestUtils, code } ) {
-			const { id } = await createCodeBin( requestUtils, code, {
-				author: author.id,
-			} );
+			const { id } = await saveAsAuthor( requestUtils, code );
 			await watchPage( page );
 			await admin.editPost( id );
 
@@ -257,6 +308,68 @@ const SCENARIOS = [
 			await expect( block ).toBeVisible();
 
 			// The preview's parent is the editor canvas, its top the editor.
+			const canvas = page.frame( { name: CANVAS_FRAME } );
+			expect(
+				canvas,
+				'The editor canvas should be an iframe.'
+			).toBeTruthy();
+			return { page, block, frames: [ page.mainFrame(), canvas ] };
+		},
+	},
+	{
+		name: 'code typed in the editor by an admin',
+		/**
+		 * Type the attack into a new code bin in the editor and save it.
+		 *
+		 * @param {Object} args              Arguments.
+		 * @param {Object} args.page         Page logged in as the admin.
+		 * @param {Object} args.admin        Admin utils.
+		 * @param {Object} args.editor       Editor utils.
+		 * @param {Object} args.requestUtils Request utils.
+		 * @param {Object} args.code         Attack code.
+		 * @return {Promise<Attack>} The attack.
+		 */
+		async run( { page, admin, editor, requestUtils, code } ) {
+			await watchPage( page );
+			await admin.createNewPost( {
+				postType: 'code_bin',
+				title: 'Admin attack',
+			} );
+			const block = getBlock( editor.canvas );
+
+			for ( const [ panel, label ] of Object.entries( PANEL_LABELS ) ) {
+				// The tab's name changes once the panel contains code.
+				await block
+					.getByRole( 'tab', {
+						name: new RegExp( `^${ label }( |$)` ),
+					} )
+					.click();
+				await block
+					.getByRole( 'textbox', { name: label, exact: true } )
+					.fill( code[ panel ] ?? '' );
+			}
+
+			const postId = await editor.publishPost();
+			const saved = await requestUtils.rest( {
+				path: `/wp/v2/code-bins/${ postId }`,
+				params: { context: 'edit' },
+			} );
+			expect(
+				Object.values( saved.meta[ META_KEY ] ),
+				'The attack should be saved exactly as written.'
+			).toEqual( [
+				{
+					html: code.html ?? '',
+					css: code.css ?? '',
+					javascript: code.javascript ?? '',
+				},
+			] );
+
+			// Run the saved code from the start.
+			await block
+				.getByRole( 'button', { name: 'Run', exact: true } )
+				.click();
+
 			const canvas = page.frame( { name: CANVAS_FRAME } );
 			expect(
 				canvas,
@@ -360,18 +473,14 @@ function inspectFrame( frame ) {
 
 test.describe( 'Code Bin preview security', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
-		const user = await requestUtils.createUser( {
-			username: 'code-bin-author',
-			email: 'code-bin-author@example.com',
-			first_name: 'Code',
-			last_name: 'Author',
-			password: 'password',
-			roles: [ 'author' ],
+		author.id = ( await requestUtils.createUser( AUTHOR ) ).id;
+		author.requestUtils = await RequestUtils.setup( {
+			user: { username: AUTHOR.username, password: AUTHOR.password },
 		} );
-		author.id = user.id;
 	} );
 
 	test.afterAll( async ( { requestUtils } ) => {
+		await author.requestUtils?.request.dispose();
 		await requestUtils.deleteAllPosts( 'code-bins' );
 		await requestUtils.deleteAllUsers();
 	} );

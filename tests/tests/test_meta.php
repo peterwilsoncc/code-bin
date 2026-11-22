@@ -26,6 +26,9 @@ class Test_Meta extends WP_UnitTestCase {
 
 	/**
 	 * Code that kses changes when saved by a user without `unfiltered_html`.
+	 *
+	 * The JavaScript includes backslashes, which are lost if the code isn't
+	 * slashed when saved.
 	 */
 	const KSES_CODE = array(
 		'html'       => '<p>Tom & Jerry</p><button onclick="go()">Go</button><iframe src="https://example.org"></iframe>',
@@ -568,7 +571,7 @@ class Test_Meta extends WP_UnitTestCase {
 		wp_update_post(
 			array(
 				'ID'           => $post_id,
-				'post_content' => '<!-- wp:paragraph --><p>No code bins</p><!-- /wp:paragraph -->',
+				'post_content' => wp_slash( '<!-- wp:paragraph --><p>No code bins</p><!-- /wp:paragraph -->' ),
 			)
 		);
 

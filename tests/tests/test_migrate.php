@@ -23,11 +23,13 @@ class Test_Migrate extends WP_UnitTestCase {
 
 	/**
 	 * Code that kses changes when saved by a user without `unfiltered_html`.
+	 *
+	 * Includes backslashes, which are lost if the code isn't slashed when saved.
 	 */
 	const CODE = array(
 		'html'       => '<p>Tom & Jerry</p><button onclick="go()">Go</button>',
-		'css'        => 'a > b { content: "&"; }',
-		'javascript' => 'if ( a < b && c > d ) {}',
+		'css'        => 'a > b { content: "&"; } q::before { content: "\\201C"; }',
+		'javascript' => 'if ( a < b && c > d ) { const re = /\\d+\\/x/; const q = "\\""; }',
 	);
 
 	/**
@@ -168,7 +170,7 @@ class Test_Migrate extends WP_UnitTestCase {
 			)
 		);
 		$post_id  = $this->create_post( $content );
-		update_post_meta( $post_id, META_KEY, array( 'migrated' => array_merge( self::CODE, array( 'html' => 'original' ) ) ) );
+		update_post_meta( $post_id, META_KEY, wp_slash( array( 'migrated' => array_merge( self::CODE, array( 'html' => 'original' ) ) ) ) );
 
 		$this->assertSame( 1, migrate_post( $post_id )['blocks'] );
 
@@ -192,7 +194,7 @@ class Test_Migrate extends WP_UnitTestCase {
 				)
 			)
 		);
-		update_post_meta( $post_id, META_KEY, array( 'abc123' => array_merge( self::CODE, array( 'html' => 'meta' ) ) ) );
+		update_post_meta( $post_id, META_KEY, wp_slash( array( 'abc123' => array_merge( self::CODE, array( 'html' => 'meta' ) ) ) ) );
 
 		migrate_post( $post_id );
 
