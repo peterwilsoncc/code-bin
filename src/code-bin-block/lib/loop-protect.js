@@ -65,18 +65,31 @@ function parseCode( code ) {
 /**
  * Add infinite loop protection to JavaScript.
  *
- * @param {string} code  Source code.
- * @param {string} panel Panel the code came from, reported back when a loop trips.
+ * @param {string} code        Source code.
+ * @param {string} panel       Panel the code came from, reported back when a loop trips.
+ * @param {number} [firstLine] Line of the panel the code starts on, eg for a script in the HTML panel.
  * @return {{code: string, sourceType: string}} Protected code and whether it is a script or module.
- * @throws {SyntaxError} If the code can not be parsed. `error.loc.line` holds the line number.
+ * @throws {SyntaxError} If the code can not be parsed. `error.loc.line` holds the panel's line number.
  */
-export function protectLoops( code, panel = 'javascript' ) {
-	const { ast, sourceType } = parseCode( code );
+export function protectLoops( code, panel = 'javascript', firstLine = 1 ) {
+	const offset = firstLine - 1;
+	let parsed;
+
+	try {
+		parsed = parseCode( code );
+	} catch ( error ) {
+		if ( error.loc && offset ) {
+			error.loc = { ...error.loc, line: error.loc.line + offset };
+		}
+		throw error;
+	}
+
+	const { ast, sourceType } = parsed;
 	const inserts = [];
 
 	const visitLoop = ( node ) => {
 		const { body } = node;
-		const check = `if(${ GUARD_NAME }(${ node.loc.start.line },${ JSON.stringify( panel ) }))break;`;
+		const check = `if(${ GUARD_NAME }(${ node.loc.start.line + offset },${ JSON.stringify( panel ) }))break;`;
 
 		if ( body.type === 'BlockStatement' ) {
 			inserts.push( [ body.start + 1, check ] );

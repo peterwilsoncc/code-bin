@@ -268,7 +268,9 @@ class Test_Preview_Styles extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider for test_wrapper_attribute_contains_styles_exactly.
+	 * Data provider for:
+	 * - test_wrapper_attribute_contains_styles_exactly
+	 * - test_editor_is_passed_styles
 	 *
 	 * @return array[] Test data.
 	 */

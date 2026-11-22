@@ -27,6 +27,8 @@ function bootstrap() {
 	add_filter( 'embed_html', __NAMESPACE__ . '\\filter_embed_html', 10, 2 );
 	add_action( 'enqueue_block_editor_assets', __NAMESPACE__ . '\\add_editor_preview_styles' );
 
+	bootstrap_meta();
+
 	register_activation_hook( PLUGIN_FILE, __NAMESPACE__ . '\\activate' );
 	register_deactivation_hook( PLUGIN_FILE, 'flush_rewrite_rules' );
 }
@@ -83,7 +85,8 @@ function initialize_custom_post_type() {
 			'menu_icon'     => 'dashicons-editor-code',
 			'show_in_rest'  => true,
 			'rest_base'     => 'code-bins',
-			'supports'      => array( 'title', 'editor', 'author', 'revisions' ),
+			// Custom fields: the code is stored in meta, which the editor reads via the REST API.
+			'supports'      => array( 'title', 'editor', 'author', 'revisions', 'custom-fields' ),
 			'template'      => array(
 				array( BLOCK_NAME ),
 			),
@@ -93,21 +96,38 @@ function initialize_custom_post_type() {
 }
 
 /**
- * Only allow the Code Bin block in the Code Bin post type.
+ * Limit where the Code Bin block can be used.
  *
- * The locked template already prevents inserting blocks. This also stops
- * other blocks being offered via transforms, paste or patterns.
+ * - The Code Bin post type only allows the Code Bin block. The locked template
+ *   already prevents inserting blocks. This also stops other blocks being
+ *   offered via transforms, paste or patterns.
+ * - Patterns edited in the post editor don't allow the Code Bin block: synced
+ *   patterns can't store the code in meta, see inc/meta.php. The site editor
+ *   has no post in its context, so the block is also blocked in JavaScript,
+ *   see index.js.
  *
  * @param bool|string[]            $allowed_block_types Allowed block types, true for all.
  * @param \WP_Block_Editor_Context $block_editor_context Editor context.
  * @return bool|string[] Allowed block types.
  */
 function filter_allowed_block_types( $allowed_block_types, $block_editor_context ) {
-	if ( empty( $block_editor_context->post ) || POST_TYPE !== $block_editor_context->post->post_type ) {
+	if ( empty( $block_editor_context->post ) ) {
 		return $allowed_block_types;
 	}
 
-	return array( BLOCK_NAME );
+	if ( POST_TYPE === $block_editor_context->post->post_type ) {
+		return array( BLOCK_NAME );
+	}
+
+	if ( 'wp_block' !== $block_editor_context->post->post_type || false === $allowed_block_types ) {
+		return $allowed_block_types;
+	}
+
+	if ( true === $allowed_block_types ) {
+		$allowed_block_types = array_keys( \WP_Block_Type_Registry::get_instance()->get_all_registered() );
+	}
+
+	return array_values( array_diff( $allowed_block_types, array( BLOCK_NAME ) ) );
 }
 
 /**
@@ -290,18 +310,26 @@ function has_saved_anchor( $attributes ) {
  * created outside the editor) fall back to an anchor based on the block's
  * code: changing the code changes that anchor.
  *
- * @param array $attributes Block attributes.
+ * @param array      $attributes Block attributes.
+ * @param array|null $code       The block's code, keyed by panel, see get_block_code().
+ *                               Defaults to the code in the attributes.
  * @return string Anchor.
  */
-function get_block_anchor( $attributes ) {
+function get_block_anchor( $attributes, $code = null ) {
 	if ( has_saved_anchor( $attributes ) ) {
 		return $attributes['anchor'];
 	}
 
-	$code = array();
-	foreach ( array( 'html', 'css', 'javascript' ) as $panel ) {
-		$code[ $panel ] = isset( $attributes[ $panel ] ) ? (string) $attributes[ $panel ] : '';
+	if ( null === $code ) {
+		$code = get_block_code( $attributes );
 	}
+
+	// Only the panels, in a fixed order, so the anchor doesn't change with the source of the code.
+	$code = array(
+		'html'       => (string) ( $code['html'] ?? '' ),
+		'css'        => (string) ( $code['css'] ?? '' ),
+		'javascript' => (string) ( $code['javascript'] ?? '' ),
+	);
 
 	return 'code-bin-' . substr( md5( wp_json_encode( $code ) ), 0, 8 );
 }

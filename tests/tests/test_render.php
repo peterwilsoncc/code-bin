@@ -116,7 +116,11 @@ class Test_Render extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider for empty blocks.
+	 * Data provider for:
+	 * - test_empty_block_renders_nothing
+	 * - test_empty_block_renders_nothing_in_feed
+	 *
+	 * Empty blocks.
 	 *
 	 * @return array[] Test data.
 	 */
@@ -174,7 +178,11 @@ class Test_Render extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider for code that needs escaping.
+	 * Data provider for:
+	 * - test_code_is_escaped_in_panel
+	 * - test_code_is_escaped_in_feed
+	 *
+	 * Code that needs escaping.
 	 *
 	 * @return array[] Test data.
 	 */
@@ -218,7 +226,7 @@ class Test_Render extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider for code in the srcdoc.
+	 * Data provider for test_srcdoc_contains_code_exactly.
 	 *
 	 * @return array[] Test data.
 	 */

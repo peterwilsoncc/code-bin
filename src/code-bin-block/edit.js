@@ -13,7 +13,7 @@ import {
 } from '@wordpress/components';
 import { code as codeIcon, Icon } from '@wordpress/icons';
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { useInstanceId } from '@wordpress/compose';
+import { useInstanceId, useRefEffect } from '@wordpress/compose';
 
 /**
  * Internal dependencies
@@ -21,7 +21,9 @@ import { useInstanceId } from '@wordpress/compose';
 import { MAX_CONSOLE_ENTRIES } from './lib/console';
 import { scheduleHighlight } from './lib/highlight';
 import { createPreview, describeStatus } from './lib/preview';
+import useCodeStorage from './lib/use-code-storage';
 import useGeneratedAnchor from './lib/use-generated-anchor';
+import { getTabHint, onCodeKeyDown } from './lib/tab-indent';
 import './editor.scss';
 
 /** @typedef {import('./lib/preview').Code} Code */
@@ -97,6 +99,7 @@ function PanelTabTitle( { title, hasCode } ) {
  */
 function CodeInput( { language, value, onChange, label, placeholder } ) {
 	const codeRef = useRef();
+	const hintId = useInstanceId( CodeInput, 'code-bin-tab-hint' );
 
 	useEffect( () => {
 		scheduleHighlight( codeRef.current?.ownerDocument );
@@ -116,14 +119,77 @@ function CodeInput( { language, value, onChange, label, placeholder } ) {
 				value={ value }
 				onChange={ ( event ) => onChange( event.target.value ) }
 				aria-label={ label }
+				aria-describedby={ hintId }
 				placeholder={ placeholder }
 				spellCheck={ false }
 				autoCapitalize="off"
 				autoComplete="off"
 				autoCorrect="off"
 			/>
+			{ /* Hidden elements can still describe the textarea. Tab is handled in onBlockKeyDown(). */ }
+			<span id={ hintId } hidden>
+				{ getTabHint() }
+			</span>
 		</div>
 	);
+}
+
+/**
+ * Handle the arrow keys, Home and End on the code tabs.
+ *
+ * The block editor's arrow key navigation (writing flow) moves focus between
+ * text fields, so it would move focus from a code tab into the code's textarea
+ * before TabPanel handles the key. This listener is on the block, below
+ * writing flow, so it handles the key first and prevents the default, which
+ * writing flow and TabPanel then ignore.
+ *
+ * @param {KeyboardEvent} event Keydown event.
+ */
+function onCodeTabKeyDown( event ) {
+	if ( event.altKey || event.ctrlKey || event.metaKey ) {
+		return;
+	}
+
+	const tab = event.target.closest?.( '.code-bin__tabs [role="tab"]' );
+	const tablist = tab?.closest( '[role="tablist"]' );
+	if ( ! tablist ) {
+		return;
+	}
+
+	const tabs = [ ...tablist.querySelectorAll( '[role="tab"]' ) ];
+	const index = tabs.indexOf( tab );
+	const targets = {
+		ArrowLeft: tabs[ ( index - 1 + tabs.length ) % tabs.length ],
+		ArrowRight: tabs[ ( index + 1 ) % tabs.length ],
+		Home: tabs[ 0 ],
+		End: tabs[ tabs.length - 1 ],
+	};
+	const target = targets[ event.key ];
+	if ( ! target ) {
+		return;
+	}
+
+	event.preventDefault();
+	target.focus();
+	// Selects the tab, as TabPanel selects tabs on click.
+	target.click();
+}
+
+/**
+ * Handle key presses in the block before the block editor does.
+ *
+ * Runs on the block, below the editor's own arrow key and Tab handling, which
+ * ignore key presses that have been handled (`defaultPrevented`).
+ *
+ * @param {KeyboardEvent} event Keydown event.
+ */
+function onBlockKeyDown( event ) {
+	if ( event.target.closest?.( '.code-bin__input' ) ) {
+		onCodeKeyDown( event );
+		return;
+	}
+
+	onCodeTabKeyDown( event );
 }
 
 const OUTPUT_TABS = [
@@ -301,13 +367,33 @@ function Preview( { code, height } ) {
  * @param {(attributes: Object) => void} props.setAttributes Attribute setter.
  * @param {string}                       props.clientId      Block client ID.
  * @param {string}                       props.name          Block name.
+ * @param {Object}                       props.context       Block context.
  * @return {Element} Element to render.
  */
-export default function Edit( { attributes, setAttributes, clientId, name } ) {
-	const { html, css, javascript, editable, previewHeight, anchor } =
-		attributes;
+export default function Edit( {
+	attributes,
+	setAttributes,
+	clientId,
+	name,
+	context,
+} ) {
+	const { editable, previewHeight, anchor } = attributes;
 
 	useGeneratedAnchor( { clientId, name, anchor, setAttributes } );
+
+	const keyboardRef = useRefEffect( ( element ) => {
+		element.addEventListener( 'keydown', onBlockKeyDown );
+		return () => element.removeEventListener( 'keydown', onBlockKeyDown );
+	}, [] );
+
+	// The code is stored in the post's meta, see use-code-storage.js.
+	const { code, setCode } = useCodeStorage( {
+		attributes,
+		setAttributes,
+		clientId,
+		context,
+	} );
+	const { html, css, javascript } = code;
 
 	return (
 		<>
@@ -344,6 +430,7 @@ export default function Edit( { attributes, setAttributes, clientId, name } ) {
 			</InspectorControls>
 			<div
 				{ ...useBlockProps( {
+					ref: keyboardRef,
 					className: 'code-bin wp-exclude-emoji',
 				} ) }
 			>
@@ -355,7 +442,7 @@ export default function Edit( { attributes, setAttributes, clientId, name } ) {
 						title: (
 							<PanelTabTitle
 								title={ panel.title }
-								hasCode={ !! attributes[ panel.name ] }
+								hasCode={ !! code[ panel.name ] }
 							/>
 						),
 					} ) ) }
@@ -368,9 +455,9 @@ export default function Edit( { attributes, setAttributes, clientId, name } ) {
 							<CodeInput
 								key={ panel.name }
 								language={ panel.language }
-								value={ attributes[ panel.name ] }
+								value={ code[ panel.name ] }
 								onChange={ ( value ) =>
-									setAttributes( { [ panel.name ]: value } )
+									setCode( panel.name, value )
 								}
 								label={ panel.title }
 								placeholder={ panel.placeholder }

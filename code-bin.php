@@ -29,5 +29,12 @@ const PLUGIN_FILE      = __FILE__;
 
 require_once __DIR__ . '/inc/functions.php';
 require_once __DIR__ . '/inc/namespace.php';
+require_once __DIR__ . '/inc/meta.php';
+require_once __DIR__ . '/inc/migrate.php';
+
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once __DIR__ . '/inc/class-cli-command.php';
+	\WP_CLI::add_command( 'code-bin', __NAMESPACE__ . '\\CLI_Command' );
+}
 
 bootstrap();

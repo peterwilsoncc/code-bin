@@ -12,6 +12,7 @@ import { __ } from '@wordpress/i18n';
 import { createConsoleView } from './lib/console';
 import { scheduleHighlight } from './lib/highlight';
 import { createPreview, describeStatus } from './lib/preview';
+import { getTabHint, onCodeKeyDown } from './lib/tab-indent';
 
 /** @typedef {import('./lib/preview').Code} Code */
 
@@ -53,9 +54,17 @@ function makeEditable( panel, onChange ) {
 	textarea.setAttribute( 'aria-label', label );
 	textarea.placeholder = code.dataset.empty || '';
 
+	// Tab indents the code, see tab-indent.js. Hidden elements can still describe the textarea.
+	const hint = document.createElement( 'span' );
+	hint.id = `${ panel.id }-tab-hint`;
+	hint.hidden = true;
+	hint.textContent = getTabHint();
+	textarea.setAttribute( 'aria-describedby', hint.id );
+	textarea.addEventListener( 'keydown', onCodeKeyDown );
+
 	// The textarea is now the accessible copy of the code.
 	pre.setAttribute( 'aria-hidden', 'true' );
-	editor.append( textarea );
+	editor.append( textarea, hint );
 
 	/*
 	 * Microlighter requires the code to be a single text node.

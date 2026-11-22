@@ -4,6 +4,7 @@
  * @see https://developer.wordpress.org/block-editor/reference-guides/block-api/block-registration/
  */
 import { registerBlockType } from '@wordpress/blocks';
+import { addFilter } from '@wordpress/hooks';
 
 /**
  * Lets webpack process CSS, SASS or SCSS files referenced in JavaScript files.
@@ -21,6 +22,7 @@ import { code } from '@wordpress/icons';
  */
 import Edit from './edit';
 import metadata from './block.json';
+import canInsertInPatterns from './lib/patterns';
 
 /**
  * Every block starts by registering a new block type definition.
@@ -34,3 +36,14 @@ registerBlockType( metadata.name, {
 	 */
 	edit: Edit,
 } );
+
+/*
+ * Keep the block out of synced patterns, which can't store its code in meta.
+ * `supports.reusable` prevents creating a pattern from the block, this stops
+ * it being added to one.
+ */
+addFilter(
+	'blockEditor.__unstableCanInsertBlockType',
+	'code-bin-block/not-in-patterns',
+	canInsertInPatterns
+);

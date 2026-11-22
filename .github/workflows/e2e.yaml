@@ -1,0 +1,84 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: WP ${{ matrix.wp-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Supported WordPress versions and trunk. Release branches of the
+        # WordPress/WordPress mirror track the latest point release.
+        include:
+          - wp-version: trunk
+            core: WordPress/WordPress#master
+          - wp-version: '7.1'
+            core: WordPress/WordPress#7.1-branch
+          - wp-version: '7.0'
+            core: WordPress/WordPress#7.0-branch
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+
+    - name: npm install
+      run: npm ci
+
+    # The plugin registers its block from the build directory, which isn't committed.
+    - name: Build
+      run: npm run build
+
+    - name: Install Playwright browser
+      run: npx playwright install --with-deps chromium
+
+    - name: Start WordPress
+      run: npm run wp-env start
+      env:
+        WP_ENV_CORE: ${{ matrix.core }}
+
+    - name: Check WordPress version
+      run: npm run wp-env run cli wp core version
+
+    - name: E2E tests
+      run: npm run test:e2e
+
+    - name: Upload test artifacts
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: e2e-artifacts-wp-${{ matrix.wp-version }}
+        path: artifacts/
+        if-no-files-found: ignore
+        retention-days: 7
+
+  required-status-checks:
+    # This should be configured as the required status check in branch protection rules
+    #
+    # Using a summary job allows for easier management of the E2E matrix as the
+    # required status check will not need to be updated when matrix items change.
+    name: E2E Required Status Checks
+    runs-on: 'ubuntu-24.04'
+    needs: [ 'e2e' ]
+    if: ${{ always() }}
+    steps:
+      - name: Detect any failing status checks
+        run: |
+          [[ "${{ join(needs.*.result, ' ') }}" =~ ^(success ?)+$ ]] || exit 1

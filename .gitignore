@@ -5,6 +5,7 @@
 # Local configuration overrides.
 /phpcs.xml
 /phpunit.xml
+/.wp-env.override.json
 
 # Dependecies.
 /vendor/
@@ -12,6 +13,7 @@
 /composer.lock
 
 # Misc.
+/artifacts/
 /.phpunit.result.cache
 .DS_Store
 /code-bin.zip

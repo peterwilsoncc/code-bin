@@ -230,6 +230,49 @@ function countNewLines( text ) {
 }
 
 /**
+ * Find the line of the HTML each script's code starts on.
+ *
+ * Parsed scripts don't record where they were in the HTML, so each script's
+ * code is looked for in turn after an opening script tag. Scripts that can't
+ * be found, eg in SVG where entities in the code are decoded, start on line 1.
+ *
+ * @param {string}              html    HTML panel.
+ * @param {HTMLScriptElement[]} scripts Every script parsed from the HTML, in document order.
+ * @return {Map<HTMLScriptElement, number>} Script => line its code starts on.
+ */
+function findScriptLines( html, scripts ) {
+	// The parser normalizes new lines in the code.
+	const source = html.replace( /\r\n?/g, '\n' );
+	const openingTag = /<script\b[^>]*>/gi;
+	const lines = new Map();
+
+	for ( const script of scripts ) {
+		const code = script.textContent;
+		const searchFrom = openingTag.lastIndex;
+		let match;
+
+		while ( ( match = openingTag.exec( source ) ) ) {
+			const start = match.index + match[ 0 ].length;
+			if ( source.startsWith( code, start ) ) {
+				lines.set(
+					script,
+					countNewLines( source.slice( 0, start ) ) + 1
+				);
+				openingTag.lastIndex = start + code.length;
+				break;
+			}
+		}
+
+		if ( ! match ) {
+			// Not found: search for the next script from the same place.
+			openingTag.lastIndex = searchFrom;
+		}
+	}
+
+	return lines;
+}
+
+/**
  * Add loop protection to inline <script> elements in the HTML panel.
  *
  * @param {string}   html     HTML panel.
@@ -245,7 +288,8 @@ function protectInlineScripts( html, document ) {
 	const template = document.createElement( 'template' );
 	template.innerHTML = html;
 
-	const scripts = [ ...template.content.querySelectorAll( 'script' ) ].filter(
+	const allScripts = [ ...template.content.querySelectorAll( 'script' ) ];
+	const scripts = allScripts.filter(
 		( script ) =>
 			! script.src &&
 			[
@@ -261,8 +305,15 @@ function protectInlineScripts( html, document ) {
 		return html;
 	}
 
+	// Every script is passed so each is matched to its place in the HTML.
+	const firstLines = findScriptLines( html, allScripts );
+
 	for ( const script of scripts ) {
-		script.textContent = protectLoops( script.textContent, 'html' ).code;
+		script.textContent = protectLoops(
+			script.textContent,
+			'html',
+			firstLines.get( script ) ?? 1
+		).code;
 	}
 
 	return template.innerHTML;

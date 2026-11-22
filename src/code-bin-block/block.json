@@ -34,10 +34,21 @@
 		"previewHeight": {
 			"type": "number",
 			"default": 300
+		},
+		"codeId": {
+			"type": "string"
+		},
+		"codePost": {
+			"type": "number"
 		}
 	},
+	"usesContext": [
+		"postId",
+		"postType"
+	],
 	"supports": {
 		"html": false,
+		"reusable": false,
 		"align": [
 			"wide",
 			"full"
