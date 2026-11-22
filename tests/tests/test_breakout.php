@@ -258,7 +258,7 @@ class Test_Breakout extends WP_UnitTestCase {
 	/**
 	 * Test the attack is saved exactly and can't break out of the markup.
 	 *
-	 * @dataProvider data_save
+	 * @dataProvider data_code_cannot_break_out
 	 *
 	 * @param string $method How to save the code.
 	 * @param string $role   Role of the user saving: admin or author.
@@ -295,7 +295,7 @@ class Test_Breakout extends WP_UnitTestCase {
 	 *
 	 * @return array[] Test data.
 	 */
-	public function data_save() {
+	public function data_code_cannot_break_out() {
 		$data = array();
 		foreach ( array( 'rest', 'meta_input', 'update_meta', 'add_meta' ) as $method ) {
 			foreach ( array( 'admin', 'author' ) as $role ) {

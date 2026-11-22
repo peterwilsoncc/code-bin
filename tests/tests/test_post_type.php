@@ -225,7 +225,10 @@ class Test_Post_Type extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Data provider for the allowed block types tests.
+	 * Data provider for:
+	 * - test_allowed_block_types_for_code_bins
+	 * - test_allowed_block_types_for_other_post_types
+	 * - test_allowed_block_types_without_post
 	 *
 	 * @return array[] Test data.
 	 */
