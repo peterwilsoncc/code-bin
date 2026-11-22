@@ -13,7 +13,7 @@ import {
 } from '@wordpress/components';
 import { code as codeIcon, Icon } from '@wordpress/icons';
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { useInstanceId } from '@wordpress/compose';
+import { useInstanceId, useRefEffect } from '@wordpress/compose';
 
 /**
  * Internal dependencies
@@ -125,6 +125,47 @@ function CodeInput( { language, value, onChange, label, placeholder } ) {
 			/>
 		</div>
 	);
+}
+
+/**
+ * Handle the arrow keys, Home and End on the code tabs.
+ *
+ * The block editor's arrow key navigation (writing flow) moves focus between
+ * text fields, so it would move focus from a code tab into the code's textarea
+ * before TabPanel handles the key. This listener is on the block, below
+ * writing flow, so it handles the key first and prevents the default, which
+ * writing flow and TabPanel then ignore.
+ *
+ * @param {KeyboardEvent} event Keydown event.
+ */
+function onCodeTabKeyDown( event ) {
+	if ( event.altKey || event.ctrlKey || event.metaKey ) {
+		return;
+	}
+
+	const tab = event.target.closest?.( '.code-bin__tabs [role="tab"]' );
+	const tablist = tab?.closest( '[role="tablist"]' );
+	if ( ! tablist ) {
+		return;
+	}
+
+	const tabs = [ ...tablist.querySelectorAll( '[role="tab"]' ) ];
+	const index = tabs.indexOf( tab );
+	const targets = {
+		ArrowLeft: tabs[ ( index - 1 + tabs.length ) % tabs.length ],
+		ArrowRight: tabs[ ( index + 1 ) % tabs.length ],
+		Home: tabs[ 0 ],
+		End: tabs[ tabs.length - 1 ],
+	};
+	const target = targets[ event.key ];
+	if ( ! target ) {
+		return;
+	}
+
+	event.preventDefault();
+	target.focus();
+	// Selects the tab, as TabPanel selects tabs on click.
+	target.click();
 }
 
 const OUTPUT_TABS = [
@@ -316,6 +357,11 @@ export default function Edit( {
 
 	useGeneratedAnchor( { clientId, name, anchor, setAttributes } );
 
+	const codeTabKeysRef = useRefEffect( ( element ) => {
+		element.addEventListener( 'keydown', onCodeTabKeyDown );
+		return () => element.removeEventListener( 'keydown', onCodeTabKeyDown );
+	}, [] );
+
 	// The code is stored in the post's meta, see use-code-storage.js.
 	const { code, setCode } = useCodeStorage( {
 		attributes,
@@ -360,6 +406,7 @@ export default function Edit( {
 			</InspectorControls>
 			<div
 				{ ...useBlockProps( {
+					ref: codeTabKeysRef,
 					className: 'code-bin wp-exclude-emoji',
 				} ) }
 			>
