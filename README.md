@@ -169,7 +169,7 @@ The bundled [microlighter](https://github.com/davatron5000/microlighter), [Acorn
 * Fixed: HTML entities in styles from the `code_bin_preview_styles` filter are kept as written.
 * Developers: code is in the REST API as the `_code_bin` meta field, keyed by each block's `codeId`.
 
-#### Migrating existing code bins
+*Migrating existing code bins*
 
 Run `wp code-bin migrate` after updating to move all existing code bins to the new storage.
 
